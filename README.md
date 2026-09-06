@@ -7,7 +7,7 @@ Across 71 real failures mined from live sessions, the built-in tool fails 65 tim
 ## Install
 
 ```bash
-pi install npm:@k0valik/pi-edit-guard
+pi install npm:pi-edit-guard
 ```
 
 Or from git:
