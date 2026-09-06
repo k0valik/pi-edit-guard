@@ -1,0 +1,4 @@
+{
+  "*.{ts,js,mjs,cjs}": ["oxlint --fix"],
+  "*.{ts,json,jsonc,md}": ["oxfmt"]
+}

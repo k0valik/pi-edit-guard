@@ -1,0 +1,75 @@
+# Unicode and Special Characters Test File
+This file contains a wide variety of Unicode characters, emoji, and special symbols.
+Tests encoding handling, UTF-8 BOM interaction, and character normalization.
+
+## Section 1: Accented Characters
+
+Café résumé naïve Zürich
+España México Brasil
+Über schön groß
+İstanbul İzmir Ankara
+München Köln Frankfurt
+
+## Section 2: Cyrillic and Greek
+
+Привет мир
+Москва Санкт-Петербург
+Γεια σου κόσμε
+Αθήνα Θεσσαλονίκη
+
+## Section 3: CJK Characters
+
+你好世界
+日本語テスト
+한국어 테스트
+中文测试
+ไทย เวอร์ชัน
+
+## Section 4: Emoji and Symbols
+
+🎉 🚀 ⚡ 🔥 💯
+✅ ❌ ⚠️ ℹ️ 🔔
+💻 📱 🌐 📊 📈
+❤️ 🧡 💛 💚 💙 💜
+
+Mathematical symbols: ± × ÷ ≠ ≤ ≥ ∞ ∑ ∏ √ ∫ ∂ ∇
+
+## Section 5: RTL Text
+
+مرحبا بالعالم
+שלום עולם
+Привет мир
+
+## Section 6: Combined and Normalization
+
+café = cafe\u0301 (should be equal after normalization)
+ résumé = resume\u0301
+ naïve = naive\u0308
+
+## Section 7: Zero-Width and Invisible
+
+Zero-width space: hello​world
+Zero-width non-joiner: hello‌world
+Zero-width joiner: hello‍world
+Left-to-right mark: hello‎world
+Right-to-left mark: hello‏world
+
+## Section 8: Special Whitespace
+
+Em space: hello—world
+En space: hello–world
+Figure space: hello world
+Hair space: hello world
+Narrow no-break space: hello world
+Medium mathematical space: hello world
+
+## Section 9: Currency and Punctuation
+
+€ €€ £ ¥ ₹ ₽
+© ® ™ § ¶ † ‡ • …
+‹ › « » “ ” ‘ ’
+
+## Section 10: Conclusion
+
+End of Unicode test.
+File should handle all these characters without corruption.

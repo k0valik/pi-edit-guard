@@ -1,0 +1,102 @@
+# No-Op and Near-No-Op Edit Targets
+# This file contains edits where oldText and newText are identical or nearly identical.
+# Tests that the edit tool detects and rejects no-op edits.
+
+## Exact No-Op Cases
+
+### Case 1: Identical Text
+
+const x = 1;
+const x = 1;
+
+### Case 2: Identical Multiline
+
+function foo() {
+	return 1;
+}
+
+function foo() {
+	return 1;
+}
+
+### Case 3: Identical With Whitespace
+
+const y = 2;  
+const y = 2;  
+
+### Case 4: Identical Import
+
+import { foo } from "./foo";
+import { foo } from "./foo";
+
+## Near-No-Op Cases
+
+### Case 5: Comment Change Only
+
+// This is a comment
+const a = 1;
+
+// This is a different comment
+const a = 1;
+
+### Case 6: Whitespace Inside String
+
+const str1 = "hello   world";
+const str2 = "hello   world";
+
+### Case 7: Order of Keys
+
+const obj1 = { a: 1, b: 2 };
+const obj2 = { b: 2, a: 1 };
+
+### Case 8: Type Coercion
+
+const num1 = 1;
+const num2 = 1;
+
+### Case 9: Renamed Variable (Same Value)
+
+const original = 42;
+const renamed = 42;
+
+### Case 10: Reordered Imports
+
+import { a, b, c } from "./module";
+import { c, b, a } from "./module";
+
+## Subtle No-Op Cases
+
+### Case 11: Extra Parentheses
+
+if ((true)) {
+	doSomething();
+}
+
+if (true) {
+	doSomething();
+}
+
+### Case 12: Unused Variable Rename
+
+const _unused1 = 1;
+const _unused2 = 1;
+
+### Case 13: Different But Equivalent
+
+const arr1 = [1, 2, 3];
+const arr2 = [1, 2, 3];
+
+### Case 14: Template Literal vs String
+
+const s1 = `hello`;
+const s2 = "hello";
+
+### Case 15: Async vs Regular (Same Body)
+
+async function asyncFn() {
+	return 1;
+}
+
+function syncFn() {
+	return 1;
+}

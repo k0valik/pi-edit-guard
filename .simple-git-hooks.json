@@ -1,0 +1,4 @@
+{
+  "pre-commit": "node scripts/pre-commit.mjs",
+  "pre-push": "node scripts/pre-push.mjs"
+}

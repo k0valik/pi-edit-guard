@@ -1,0 +1,19 @@
+{
+  "editOverrideEnabled": true,
+  "repairEnabled": true,
+  "repairPolicy": "adaptive",
+  "staleReadEnabled": true,
+  "staleReadToleranceMs": 500,
+  "stormbreakerEnabled": true,
+  "stormbreakerThreshold": 3,
+  "stormbreakerAutoContinue": true,
+  "stormbreakerRetryDelayMs": 3000,
+  "preflightEnabled": true,
+  "overwriteGuardEnabled": false,
+  "warningsEnabled": true,
+  "coherenceCheckEnabled": false,
+  "undoEnabled": true,
+  "undoMaxBytes": 5000000,
+  "outsideCwdAdvisoryEnabled": true,
+  "telemetryEnabled": true
+}

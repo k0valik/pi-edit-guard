@@ -1,0 +1,19 @@
+# Regex Patterns with {n,m} Quantifiers
+# These patterns use brace quantifiers that can confuse brace-balance checks.
+
+PATTERN1 = /a{1,10}/
+PATTERN2 = /b{2,5}/
+PATTERN3 = /c{3,7}/
+PATTERN4 = /d{4,8}/
+PATTERN5 = /e{5,9}/
+
+# Template Literal Content with Many Braces
+# This looks like JS template literal syntax but is in a .txt file.
+`{{{{`
+
+# Shell Brace Expansion Strings
+# These are inside quotes so they should not trigger warnings.
+echo "{a,b,c}"
+echo "{1..10}"
+
+# End of false-positive fixtures

@@ -1,0 +1,26 @@
+node_modules/
+dist/
+
+# Windows NTFS alternate data stream artifacts
+*:Zone.Identifier
+
+tmp-repos
+tmp/
+.tmp/
+test-workspace/
+.oxlintcache/
+.oxfmtcache/
+.husky/
+.worktrees/
+.pi/*-config.json
+packages/*/dist/
+packages/*/node_modules/
+
+# Subagent session artifacts
+.pi/subagents/
+partial.txt
+partial.txt
+
+# ephemeral run outputs (snapshotted into docs/baselines/ instead)
+tests/integration/fixtures/live-replay-report.json
+tests/integration/fixtures/replay-report.json

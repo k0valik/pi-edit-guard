@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "node": true
+  },
+  "globals": {},
+  "ignorePatterns": [
+    "tests/integration/fixtures/files",
+    "tests/integration/fixtures/session-failures.json"
+  ],
+  "rules": {
+    "no-console": "off",
+    "no-debugger": "warn",
+    "no-unused-vars": "warn",
+    "no-unused-private-class-members": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["**/__tests__/**", "**/tests/**", "**/test/**", "**/*.test.ts", "**/*.test.mjs"],
+      "rules": {
+        "no-explicit-any": "off"
+      }
+    }
+  ]
+}

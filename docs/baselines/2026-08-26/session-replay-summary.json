@@ -1,0 +1,21 @@
+{
+  "capturedAt": "2026-08-26T00:32:41.231Z",
+  "command": "pnpm replay",
+  "baselineErrors": 36,
+  "ourErrors": 23,
+  "improved": 13,
+  "regressed": 0,
+  "expectationMismatches": 42,
+  "timings": {
+    "builtin": {
+      "meanMs": 0.35,
+      "medianMs": 0,
+      "p95Ms": 1.56
+    },
+    "ours": {
+      "meanMs": 17.92,
+      "medianMs": 0,
+      "p95Ms": 68.45
+    }
+  }
+}

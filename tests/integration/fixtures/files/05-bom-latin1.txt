@@ -1,0 +1,66 @@
+﻿# UTF-8 BOM Test File
+This file starts with a UTF-8 BOM (EF BB BF) to test BOM preservation.
+The BOM is invisible but affects byte-level matching and edits.
+
+## Section 1: BOM Detection
+
+When reading this file, the first character is U+FEFF.
+After stripping the BOM, the content starts with "# UTF-8 BOM Test File".
+Edits should preserve the BOM on write.
+
+## Section 2: Mixed Content
+
+Some lines have content after the BOM.
+The BOM only appears once at the very beginning.
+
+### Subsection 2.1
+
+Line with content.
+Another line with content.
+
+### Subsection 2.2
+
+More content here.
+Even more content here.
+
+## Section 3: Encoding Edge Cases
+
+This section tests that the edit tool handles BOM correctly.
+The oldText the model provides should NOT include the BOM.
+The newText should also not include the BOM.
+But the file on disk should retain the BOM after edit.
+
+Special characters: café, naïve, résumé, Zürich
+
+## Section 4: Large Block
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+Duis aute irure dolor in reprehenderit in voluptate velit esse.
+Excepteur sint occaecat cupidatat non proident sunt in culpa.
+
+## Section 5: Tables
+
+| Column A | Column B | Column C |
+|----------|----------|----------|
+| Value 1  | Value 2  | Value 3  |
+| Alpha    | Beta     | Gamma    |
+| Delta    | Epsilon  | Zeta     |
+
+## Section 6: Code Blocks
+
+```typescript
+const withBom = true;
+function stripBom(text: string): string {
+  if (text.charCodeAt(0) === 0xfeff) {
+    return text.slice(1);
+  }
+  return text;
+}
+```
+
+## Section 7: Conclusion
+
+End of BOM test file.
+This line should be editable without BOM issues.

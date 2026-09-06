@@ -1,0 +1,38 @@
+# CRLF Line Ending Test File
+This file uses Windows-style CRLF line endings (\\r\\n) throughout.
+It tests that the edit tool preserves original line endings in untouched regions.
+
+## Section 1: CRLF Detection
+
+Every line in this file ends with \\r\\n, not just \\n.
+This includes blank lines and lines at the end of the file.
+
+Line 1: content with CRLF
+Line 2: content with CRLF
+Line 3: content with CRLF
+
+## Section 2: Mixed Content with CRLF
+
+Tables should also use CRLF:
+
+| Header 1 | Header 2 |
+|----------|----------|
+| Cell A   | Cell B   |
+| Cell C   | Cell D   |
+
+Code blocks:
+
+```javascript
+const line = "hello";
+console.log(line);
+```
+
+## Section 3: Blank Lines with CRLF
+
+
+Another paragraph after blank CRLF line.
+
+## Section 4: Trailing Content
+
+This is the last section.
+End of CRLF test file.

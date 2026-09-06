@@ -1,0 +1,57 @@
+{
+  "name": "pi-base",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared utilities for pi-packages",
+  "files": [
+    "src"
+  ],
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./config-settings": "./src/config-settings.ts",
+    "./context-provider": "./src/context-provider.ts",
+    "./hash": "./src/hash.ts",
+    "./llm": "./src/llm.ts",
+    "./report": "./src/report.ts",
+    "./session": "./src/session.ts",
+    "./settings": "./src/settings/index.ts",
+    "./settings-registry": "./src/settings-registry.ts",
+    "./settings-ui": "./src/settings-ui.ts",
+    "./registry": "./src/registry.ts",
+    "./shell": "./src/shell.ts",
+    "./shell.js": "./src/shell.ts",
+    "./test-utils": "./src/pi-mock.ts"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-tui": "0.80.6"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
+}

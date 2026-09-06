@@ -1,0 +1,12 @@
+{
+  "capturedAt": "2026-08-26T00:32:41.231Z",
+  "totalFixtures": 71,
+  "applied": 57,
+  "preciseDiagnostics": 14,
+  "unexpected": 0,
+  "baselineErroredOnRawShape": 65,
+  "timings": {
+    "medianMs": 23.02,
+    "p95Ms": 632.41
+  }
+}

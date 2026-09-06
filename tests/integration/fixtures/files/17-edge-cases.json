@@ -1,0 +1,158 @@
+{
+  "_meta": {
+    "description": "Edge cases for edit tool testing",
+    "version": "1.0.0",
+    "edge_cases": [
+      {
+        "name": "empty_string",
+        "value": "",
+        "note": "Empty string value"
+      },
+      {
+        "name": "string_with_only_whitespace",
+        "value": "   \t\n\r  ",
+        "note": "Only whitespace characters"
+      },
+      {
+        "name": "string_with_newlines",
+        "value": "line1\nline2\nline3",
+        "note": "Contains newline characters"
+      },
+      {
+        "name": "string_with_tabs",
+        "value": "col1\tcol2\tcol3",
+        "note": "Contains tab characters"
+      },
+      {
+        "name": "string_with_carriage_return",
+        "value": "line1\rline2",
+        "note": "Contains CR without LF"
+      },
+      {
+        "name": "string_with_null_byte",
+        "value": "before\u0000after",
+        "note": "Contains null byte"
+      },
+      {
+        "name": "string_with_backspace",
+        "value": "before\u0008after",
+        "note": "Contains backspace character"
+      },
+      {
+        "name": "string_with_escape_sequences",
+        "value": "tab:\t newline:\n carriage:\r backspace:\b formfeed:\f",
+        "note": "Various escape sequences"
+      },
+      {
+        "name": "string_with_unicode_escapes",
+        "value": "caf\u00e9 r\u00e9sum\u00e9",
+        "note": "Unicode escape sequences"
+      },
+      {
+        "name": "string_with_hex_escapes",
+        "value": "caf\\xE9 r\\xE9sum\\xE9",
+        "note": "Hexadecimal escape sequences"
+      },
+      {
+        "name": "number_zero",
+        "value": 0,
+        "note": "Zero value"
+      },
+      {
+        "name": "number_negative",
+        "value": -42,
+        "note": "Negative number"
+      },
+      {
+        "name": "number_float",
+        "value": 3.14159,
+        "note": "Floating point number"
+      },
+      {
+        "name": "number_scientific",
+        "value": 1.23e-4,
+        "note": "Scientific notation"
+      },
+      {
+        "name": "number_infinity",
+        "value": "Infinity",
+        "note": "Infinity as string"
+      },
+      {
+        "name": "boolean_true",
+        "value": true,
+        "note": "Boolean true"
+      },
+      {
+        "name": "boolean_false",
+        "value": false,
+        "note": "Boolean false"
+      },
+      {
+        "name": "null_value",
+        "value": null,
+        "note": "Null value"
+      },
+      {
+        "name": "empty_array",
+        "value": [],
+        "note": "Empty array"
+      },
+      {
+        "name": "empty_object",
+        "value": {},
+        "note": "Empty object"
+      },
+      {
+        "name": "array_with_empty_strings",
+        "value": ["", "", ""],
+        "note": "Array of empty strings"
+      },
+      {
+        "name": "nested_empty_structures",
+        "value": { "a": { "b": { "c": {} } } },
+        "note": "Deeply nested empty objects"
+      },
+      {
+        "name": "key_with_special_chars",
+        "value": { "key-with-dashes": 1, "key.with.dots": 2, "key with spaces": 3 },
+        "note": "Keys with special characters"
+      },
+      {
+        "name": "very_long_key",
+        "value": "this_is_an_extremely_long_key_name_that_goes_on_and_on_and_on_and_on_and_on_and_on_and_on",
+        "note": "Very long key name"
+      },
+      {
+        "name": "key_that_looks_like_number",
+        "value": { "123": "numeric key", "456abc": "alphanumeric key" },
+        "note": "Keys that look like numbers"
+      },
+      {
+        "name": "duplicate_keys",
+        "value": { "a": 1, "a": 2, "a": 3 },
+        "note": "Duplicate keys (last wins in JSON)"
+      },
+      {
+        "name": "trailing_comma",
+        "value": { "a": 1, "b": 2, },
+        "note": "Trailing comma in object"
+      },
+      {
+        "name": "leading_comma",
+        "value": { "a": 1, "b": 2, "c": 3 },
+        "note": "No trailing comma"
+      },
+      {
+        "name": "single_element_array",
+        "value": [1],
+        "note": "Array with single element"
+      },
+      {
+        "name": "array_with_trailing_comma",
+        "value": [1, 2, 3,],
+        "note": "Array with trailing comma"
+      }
+    ]
+  }
+}

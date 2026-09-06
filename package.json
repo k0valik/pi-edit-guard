@@ -1,0 +1,96 @@
+{
+  "name": "pi-edit-guard",
+  "version": "0.1.0",
+  "description": "Override the built-in edit tool in pi coding agent to make edits reliable where models fail or struggle with the built-in one",
+  "keywords": [
+    "code-editing",
+    "edit",
+    "edit-tool",
+    "extension",
+    "file-editing",
+    "fuzzy-matching",
+    "model-agnostic",
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "pi-package",
+    "replace",
+    "replace-all",
+    "search-replace",
+    "stormbreaker",
+    "typescript"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k0valik/pi-edit-guard.git"
+  },
+  "files": [
+    "dist/",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "extension.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt . --check",
+    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check && pnpm test",
+    "verify": "pnpm check",
+    "build": "tsup",
+    "build:extensions": "node scripts/build-extensions.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "replay": "jiti scripts/replay-session-fixtures.mjs",
+    "replay:live": "jiti scripts/replay-live-failures.mjs",
+    "prepare": "node scripts/prepare.mjs",
+    "pool": "jiti scripts/build-failure-pool.mjs",
+    "score": "jiti scripts/score-chain.mjs",
+    "baseline": "jiti scripts/snapshot-baseline.mjs"
+  },
+  "dependencies": {
+    "typebox": "^1.3.8"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-tui": "0.80.6",
+    "@types/node": "^24.0.0",
+    "diff": "8.0.4",
+    "jiti": "^2.7.0",
+    "lint-staged": "^17.0.8",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.70.0",
+    "simple-git-hooks": "^2.14.0",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.0",
+    "vitest": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.75.0 <1.0.0",
+    "@earendil-works/pi-coding-agent": ">=0.75.0 <1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.18.0"
+  },
+  "packageManager": "pnpm@11.5.2",
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  }
+}

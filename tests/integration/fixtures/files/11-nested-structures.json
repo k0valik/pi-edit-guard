@@ -1,0 +1,204 @@
+{
+  "project": "integration-test-fixtures",
+  "version": "1.0.0",
+  "description": "Deeply nested JSON structures for testing edit tool behavior",
+  "metadata": {
+    "created": "2026-01-01T00:00:00Z",
+    "updated": "2026-01-02T00:00:00Z",
+    "author": {
+      "name": "Test Author",
+      "email": "test@example.com",
+      "roles": ["admin", "editor", "viewer"],
+      "profile": {
+        "bio": "A test author for integration fixtures",
+        "location": "Earth",
+        "social": {
+          "github": "https://github.com/test-author",
+          "twitter": "https://twitter.com/test-author",
+          "linkedin": "https://linkedin.com/in/test-author"
+        }
+      }
+    }
+  },
+  "config": {
+    "features": {
+      "authentication": {
+        "enabled": true,
+        "providers": {
+          "local": {
+            "enabled": true,
+            "options": {
+              "maxAttempts": 5,
+              "lockoutDuration": 300,
+              "passwordPolicy": {
+                "minLength": 12,
+                "requireUppercase": true,
+                "requireLowercase": true,
+                "requireNumbers": true,
+                "requireSymbols": true,
+                "bannedPasswords": ["password", "123456", "qwerty"]
+              }
+            }
+          },
+          "oauth": {
+            "enabled": true,
+            "providers": {
+              "google": {
+                "clientId": "google-client-id",
+                "scopes": ["profile", "email"],
+                "redirectUri": "https://example.com/auth/callback"
+              },
+              "github": {
+                "clientId": "github-client-id",
+                "scopes": ["user:email"],
+                "redirectUri": "https://example.com/auth/github/callback"
+              }
+            }
+          }
+        }
+      },
+      "database": {
+        "enabled": true,
+        "connections": {
+          "primary": {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app_db",
+            "pool": {
+              "min": 2,
+              "max": 10,
+              "idleTimeout": 30000
+            },
+            "ssl": {
+              "enabled": true,
+              "rejectUnauthorized": false,
+              "ca": "/path/to/ca.crt"
+            }
+          },
+          "replica": {
+            "host": "replica.example.com",
+            "port": 5432,
+            "database": "app_db",
+            "pool": {
+              "min": 1,
+              "max": 5,
+              "idleTimeout": 30000
+            }
+          }
+        },
+        "migrations": {
+          "directory": "./migrations",
+          "table": "schema_migrations",
+          "transaction": true
+        },
+        "seeds": {
+          "enabled": false,
+          "directory": "./seeds",
+          "force": false
+        }
+      },
+      "cache": {
+        "enabled": true,
+        "driver": "redis",
+        "connections": {
+          "default": {
+            "host": "localhost",
+            "port": 6379,
+            "database": 0,
+            "options": {
+              "retryDelayOnFailover": 100,
+              "maxRetriesPerRequest": 3,
+              "lazyConnect": true
+            }
+          }
+        },
+        "stores": {
+          "sessions": {
+            "connection": "default",
+            "prefix": "sessions:",
+            "ttl": 3600
+          },
+          "api": {
+            "connection": "default",
+            "prefix": "api:",
+            "ttl": 300
+          }
+        }
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "path": "/api/v1/users",
+      "method": "GET",
+      "middleware": ["auth", "throttle:60,1", "cache:300"],
+      "handler": "UserController@index",
+      "permissions": ["users.read"]
+    },
+    {
+      "path": "/api/v1/users",
+      "method": "POST",
+      "middleware": ["auth", "throttle:10,1", "validate:user.create"],
+      "handler": "UserController@store",
+      "permissions": ["users.create"]
+    },
+    {
+      "path": "/api/v1/users/{id}",
+      "method": "GET",
+      "middleware": ["auth", "cache:600"],
+      "handler": "UserController@show",
+      "permissions": ["users.read"]
+    },
+    {
+      "path": "/api/v1/users/{id}",
+      "method": "PUT",
+      "middleware": ["auth", "validate:user.update"],
+      "handler": "UserController@update",
+      "permissions": ["users.update"]
+    },
+    {
+      "path": "/api/v1/users/{id}",
+      "method": "DELETE",
+      "middleware": ["auth", "throttle:5,1"],
+      "handler": "UserController@destroy",
+      "permissions": ["users.delete"]
+    }
+  ],
+  "logging": {
+    "default": "info",
+    "levels": {
+      "app": "debug",
+      "db": {
+        "queries": true,
+        "slow": 1000,
+        "transactions": true
+      },
+      "http": {
+        "requests": true,
+        "responses": false,
+        "errors": true
+      }
+    },
+    "channels": {
+      "console": {
+        "driver": "console",
+        "level": "debug"
+      },
+      "file": {
+        "driver": "daily",
+        "path": "./logs/app.log",
+        "level": "info",
+        "days": 14
+      },
+      "slack": {
+        "driver": "slack",
+        "webhook": "https://hooks.slack.com/services/T00/B00/xxx",
+        "level": "error",
+        "bot": {
+          "username": "AlertBot",
+          "icon": ":rotating_light:"
+        }
+      }
+    }
+  }
+}

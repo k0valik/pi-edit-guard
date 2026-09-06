@@ -1,0 +1,80 @@
+# Duplicate Blocks Test File
+This file contains identical and near-identical blocks repeated multiple times.
+Tests ambiguous match behavior and anchor window disambiguation.
+
+## Template Block A
+
+function handleRequest(req, res) {
+  const { id, payload } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  const result = processPayload(payload);
+  return res.status(200).json({ id, result });
+}
+
+## Middle Section
+
+Some unique content here that should not be matched.
+This section acts as filler between duplicate blocks.
+
+## Template Block A (Duplicate)
+
+function handleRequest(req, res) {
+  const { id, payload } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  const result = processPayload(payload);
+  return res.status(200).json({ id, result });
+}
+
+## Another Middle Section
+
+More unique filler content.
+This helps disambiguate the duplicate blocks.
+
+## Template Block A (Third Occurrence)
+
+function handleRequest(req, res) {
+  const { id, payload } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  const result = processPayload(payload);
+  return res.status(200).json({ id, result });
+}
+
+## Template Block B (Near Duplicate)
+
+function handleRequest(req, res) {
+  const { id, payload, meta } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  if (!payload) {
+    return res.status(400).json({ error: "Missing payload" });
+  }
+  const result = processPayload(payload, meta);
+  return res.status(200).json({ id, result, meta });
+}
+
+## Template Block B (Duplicate Near Match)
+
+function handleRequest(req, res) {
+  const { id, payload, meta } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  if (!payload) {
+    return res.status(400).json({ error: "Missing payload" });
+  }
+  const result = processPayload(payload, meta);
+  return res.status(200).json({ id, result, meta });
+}
+
+## Unique Footer
+
+This is the end of the file.
+No more duplicate blocks after this point.
+Good for testing edits near the end of file.

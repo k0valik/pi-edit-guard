@@ -1,0 +1,81 @@
+{
+  "capturedAt": "2026-08-26T00:32:41.229Z",
+  "entries": 1396,
+  "outcomes": {
+    "partial": 320,
+    "error": 353,
+    "full-apply": 606,
+    "prepare-throw": 111,
+    "invalid-schema": 1,
+    "skipped-hugetext": 5
+  },
+  "failureClasses": {
+    "partial": 320,
+    "precise-diagnostic": 254,
+    "blind-failure": 57,
+    "CANDIDATE": 42
+  },
+  "passAttribution": {
+    "simple": 1027,
+    "block_anchor": 179,
+    "token_overlap": 128,
+    "fuzzy_boundary": 73,
+    "trimmed_boundary": 59,
+    "indentation_flexible": 30,
+    "context_aware": 26,
+    "auto_expand": 12,
+    "escape_normalized": 5,
+    "replace_all": 2,
+    "whitespace_normalized": 2,
+    "block_anchor_levenshtein": 2,
+    "robust_backslash": 2
+  },
+  "timingMs": {
+    "median": 2,
+    "p90": 158,
+    "p99": 1703,
+    "max": 17391
+  },
+  "slowest": [
+    {
+      "durationMs": 17391,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 10883,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 6567,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 5912,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 5243,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 4626,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 3959,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 3338,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 2718,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 1990,
+      "outcome": "full-apply"
+    }
+  ]
+}

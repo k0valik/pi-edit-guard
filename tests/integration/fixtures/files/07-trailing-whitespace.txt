@@ -1,0 +1,50 @@
+# Trailing Whitespace Test File
+This file has trailing whitespace on many lines (spaces and tabs).
+Tests that fuzzy passes like line_trimmed and whitespace_normalized work.
+
+## Section 1: Space Trailing
+
+Line with trailing spaces: hello world     
+Another line with trailing spaces: foo bar   
+Third line with trailing spaces: baz qux     
+
+## Section 2: Tab Trailing
+
+Line with trailing tab: alpha\t	
+Another line with trailing tab: beta\t	
+Third line with trailing tab: gamma\t	
+
+## Section 3: Mixed Trailing
+
+Line with space then tab: delta \t	
+Line with tab then space: epsilon\t \t	
+Line with many spaces: zeta     \t     
+
+## Section 4: No Trailing
+
+These lines have no trailing whitespace at all.
+They should match exactly without normalization.
+Clean line 1
+Clean line 2
+Clean line 3
+
+## Section 5: Indentation Trailing
+
+    Indented line with trailing spaces: foo     
+	Tab-indented line with trailing tab: bar\t	
+        Space-indented line (8 spaces) with trailing: baz     
+
+## Section 6: Blank Lines with Trailing
+
+Line before blank
+   \t   \t   
+Line after blank
+
+Another blank with content
+\t\t\t\t
+Content again
+
+## Section 7: Conclusion
+
+End of trailing whitespace test.
+Some lines have trailing content, some do not.

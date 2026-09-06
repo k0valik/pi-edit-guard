@@ -1,0 +1,354 @@
+{
+  "manifest_version": "1.0.0",
+  "generated": "2026-08-04T00:00:00Z",
+  "description": "Integration test fixture manifest for edit tool failure replay",
+  "files": [
+    {
+      "id": "01",
+      "filename": "01-large-markdown.md",
+      "language": "markdown",
+      "size_bytes": 3842,
+      "primary_targets": [
+        "fuzzy-match-section-headers",
+        "numbered-block-replacement",
+        "table-edit"
+      ],
+      "secondary_targets": [
+        "code-block-edit",
+        "long-line-match"
+      ],
+      "failure_probability": "medium",
+      "notes": "Large file with numbered sections. Model may reference 'Section 3.2' which requires exact match or anchor."
+    },
+    {
+      "id": "02",
+      "filename": "02-python-mixed-indent.py",
+      "language": "python",
+      "size_bytes": 5216,
+      "primary_targets": [
+        "mixed-indentation-normalization",
+        "tab-space-conversion"
+      ],
+      "secondary_targets": [
+        "class-method-edit",
+        "type-hint-addition"
+      ],
+      "failure_probability": "high",
+      "notes": "Deliberately mixes tabs and spaces. Some functions use tabs, others use 4 spaces, some use 2. Tests line_trimmed and whitespace passes."
+    },
+    {
+      "id": "03",
+      "filename": "03-typescript-complex.ts",
+      "language": "typescript",
+      "size_bytes": 9132,
+      "primary_targets": [
+        "generic-type-edit",
+        "nested-interface-edit"
+      ],
+      "secondary_targets": [
+        "abstract-class-edit",
+        "conditional-type-edit"
+      ],
+      "failure_probability": "medium",
+      "notes": "Deeply nested generics and conditional types. Edits may span multiple nested levels."
+    },
+    {
+      "id": "04",
+      "filename": "04-mjs-wrong-indent.mjs",
+      "language": "javascript",
+      "size_bytes": 2970,
+      "primary_targets": [
+        "wrong-indentation-normalization",
+        "tab-space-mixed"
+      ],
+      "secondary_targets": [
+        "class-method-edit",
+        "import-edit"
+      ],
+      "failure_probability": "high",
+      "notes": "ESM module with inconsistent indentation. Some blocks use tabs, others spaces. Tests normalization passes."
+    },
+    {
+      "id": "05",
+      "filename": "05-bom-latin1.txt",
+      "language": "text",
+      "size_bytes": 1749,
+      "primary_targets": [
+        "bom-preservation",
+        "utf8-bom-handling"
+      ],
+      "secondary_targets": [
+        "special-character-edit",
+        "unicode-edit"
+      ],
+      "failure_probability": "medium",
+      "notes": "Starts with UTF-8 BOM. Model should NOT include BOM in oldText/newText. File should retain BOM after edit."
+    },
+    {
+      "id": "06",
+      "filename": "06-crlf-endings.txt",
+      "language": "text",
+      "size_bytes": 807,
+      "primary_targets": [
+        "crlf-preservation",
+        "line-ending-normalization"
+      ],
+      "secondary_targets": [
+        "windows-line-endings",
+        "mixed-line-endings"
+      ],
+      "failure_probability": "medium",
+      "notes": "All lines end with CRLF. Edit tool should normalize for matching but preserve original line endings in untouched regions."
+    },
+    {
+      "id": "07",
+      "filename": "07-trailing-whitespace.txt",
+      "language": "text",
+      "size_bytes": 1235,
+      "primary_targets": [
+        "trailing-whitespace-stripping",
+        "line_trimmed-pass"
+      ],
+      "secondary_targets": [
+        "tab-trailing",
+        "space-trailing"
+      ],
+      "failure_probability": "high",
+      "notes": "Many lines have trailing spaces or tabs. Fuzzy passes should normalize these for matching."
+    },
+    {
+      "id": "08",
+      "filename": "08-duplicate-blocks.txt",
+      "language": "text",
+      "size_bytes": 2111,
+      "primary_targets": [
+        "ambiguous-match",
+        "anchor-required"
+      ],
+      "secondary_targets": [
+        "duplicate-function-blocks",
+        "near-duplicate-match"
+      ],
+      "failure_probability": "high",
+      "notes": "Contains 3 identical function blocks and 2 near-duplicate blocks. Model must provide anchor to disambiguate."
+    },
+    {
+      "id": "09",
+      "filename": "09-unicode-special.txt",
+      "language": "text",
+      "size_bytes": 1466,
+      "primary_targets": [
+        "unicode-normalization",
+        "special-character-handling"
+      ],
+      "secondary_targets": [
+        "rtl-text",
+        "emoji-handling",
+        "zero-width-chars"
+      ],
+      "failure_probability": "medium",
+      "notes": "Wide variety of Unicode: accented chars, Cyrillic, Greek, CJK, emoji, RTL, zero-width, special whitespace."
+    },
+    {
+      "id": "10",
+      "filename": "10-very-long-lines.ts",
+      "language": "typescript",
+      "size_bytes": 4543,
+      "primary_targets": [
+        "long-line-fuzzy-match",
+        "token-estimation-limits"
+      ],
+      "secondary_targets": [
+        "sql-in-string",
+        "path-operations",
+        "regex-patterns"
+      ],
+      "failure_probability": "medium",
+      "notes": "Lines exceeding 500+ characters. Tests how fuzzy matching handles long context and token limits."
+    },
+    {
+      "id": "11",
+      "filename": "11-nested-structures.json",
+      "language": "json",
+      "size_bytes": 5318,
+      "primary_targets": [
+        "deep-json-edit",
+        "nested-object-modification"
+      ],
+      "secondary_targets": [
+        "array-edit",
+        "config-update"
+      ],
+      "failure_probability": "medium",
+      "notes": "Deeply nested JSON with 4-5 levels of nesting. Edits must target specific nested paths."
+    },
+    {
+      "id": "12",
+      "filename": "12-comments-like-code.py",
+      "language": "python",
+      "size_bytes": 4351,
+      "primary_targets": [
+        "avoid-comment-match",
+        "avoid-string-match"
+      ],
+      "secondary_targets": [
+        "sql-in-strings",
+        "code-in-comments"
+      ],
+      "failure_probability": "high",
+      "notes": "Contains SQL strings, commented-out code, and code-like comments. Model should not accidentally match inside comments/strings."
+    },
+    {
+      "id": "13",
+      "filename": "13-overlapping-targets.ts",
+      "language": "typescript",
+      "size_bytes": 4762,
+      "primary_targets": [
+        "overlapping-edit-rejection",
+        "overlap-detection"
+      ],
+      "secondary_targets": [
+        "import-block-overlap",
+        "class-body-overlap"
+      ],
+      "failure_probability": "high",
+      "notes": "Multiple regions where edits would overlap. Tests that the tool rejects overlapping edits or applies them safely."
+    },
+    {
+      "id": "14",
+      "filename": "14-noop-and-near-noop.txt",
+      "language": "text",
+      "size_bytes": 1569,
+      "primary_targets": [
+        "noop-detection",
+        "noop-rejection"
+      ],
+      "secondary_targets": [
+        "reordered-keys",
+        "renamed-variables"
+      ],
+      "failure_probability": "high",
+      "notes": "Contains exact no-ops and near-no-ops (reordered keys, renamed unused vars). Tool should detect and reject."
+    },
+    {
+      "id": "15",
+      "filename": "15-ambiguous-anchors.ts",
+      "language": "typescript",
+      "size_bytes": 3909,
+      "primary_targets": [
+        "anchor-window",
+        "ambiguous-disambiguation"
+      ],
+      "secondary_targets": [
+        "3x-identical-blocks",
+        "near-duplicate-match"
+      ],
+      "failure_probability": "high",
+      "notes": "Three identical function blocks. Model must provide a unique anchor to target a specific occurrence."
+    },
+    {
+      "id": "16",
+      "filename": "16-recovery-scenarios.ts",
+      "language": "typescript",
+      "size_bytes": 3721,
+      "primary_targets": [
+        "fuzzy-match-recovery",
+        "backslash-escape",
+        "whitespace-drift"
+      ],
+      "secondary_targets": [
+        "unicode-normalization",
+        "line-boundary-crossing"
+      ],
+      "failure_probability": "medium",
+      "notes": "Text that is intentionally close to but not exactly what the model might generate. Tests recovery/fuzzy passes."
+    },
+    {
+      "id": "17",
+      "filename": "17-edge-cases.json",
+      "language": "json",
+      "size_bytes": 4141,
+      "primary_targets": [
+        "edge-case-json-edit",
+        "special-value-handling"
+      ],
+      "secondary_targets": [
+        "empty-values",
+        "special-keys",
+        "trailing-commas"
+      ],
+      "failure_probability": "medium",
+      "notes": "JSON with empty strings, nulls, special characters in keys, trailing commas, and other edge cases."
+    },
+    {
+      "id": "18",
+      "filename": "18-quoting-escaping.sh",
+      "language": "bash",
+      "size_bytes": 4555,
+      "primary_targets": [
+        "shell-quoting-edit",
+        "escaping-handling"
+      ],
+      "secondary_targets": [
+        "single-double-quotes",
+        "command-substitution",
+        "heredoc-edit"
+      ],
+      "failure_probability": "high",
+      "notes": "Various shell quoting patterns: single quotes, double quotes, command substitution, heredocs, arithmetic expansion."
+    },
+    {
+      "id": "19",
+      "filename": "19-multiline-strings.js",
+      "language": "javascript",
+      "size_bytes": 3971,
+      "primary_targets": [
+        "template-literal-edit",
+        "multiline-string-edit"
+      ],
+      "secondary_targets": [
+        "tagged-template-edit",
+        "concatenated-string-edit"
+      ],
+      "failure_probability": "high",
+      "notes": "Template literals, tagged templates, concatenated strings, and multiline strings spanning many lines."
+    },
+    {
+      "id": "20",
+      "filename": "20-final-edge-cases.txt",
+      "language": "text",
+      "size_bytes": 2359,
+      "primary_targets": [
+        "mixed-line-endings",
+        "empty-sections",
+        "repeated-headers"
+      ],
+      "secondary_targets": [
+        "whitespace-only-lines",
+        "special-characters",
+        "unicode-edge-cases"
+      ],
+      "failure_probability": "high",
+      "notes": "Final catch-all file with remaining edge cases: empty sections, repeated headers, mixed line endings, special characters."
+    }
+  ],
+  "total_files": 20,
+  "total_size_bytes": 56929,
+  "recommended_edit_operations": [
+    "Change section headers",
+    "Add new sections between existing ones",
+    "Modify code blocks",
+    "Fix indentation",
+    "Add imports",
+    "Rename variables",
+    "Update configuration values",
+    "Modify function signatures",
+    "Add error handling",
+    "Change string values",
+    "Update comments",
+    "Modify JSON values",
+    "Change SQL queries",
+    "Update template literals",
+    "Modify shell commands"
+  ]
+}
