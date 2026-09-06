@@ -64,7 +64,7 @@ export const EDIT_SCHEMA = Type.Object({
   }),
   edits: Type.Array(replaceEditSchema, {
     description:
-      "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
+      "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead. Send `edits` as an array of objects, even for a single edit.",
   }),
 });
 
@@ -271,6 +271,41 @@ export function repairJsonPunctuation(str: string): string {
     out += ch;
   }
   return out;
+}
+
+const EDITS_SHAPE_HINT =
+  'edits must be a JSON array of objects, e.g. "edits": [{"oldText": "a", "newText": "b"}] — never a string containing JSON.';
+
+function isEditObject(value: unknown): value is { oldText: string; newText: string } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as Record<string, unknown>).oldText === "string" &&
+    typeof (value as Record<string, unknown>).newText === "string"
+  );
+}
+
+/** Normalize whatever the model sent for `edits` into an array of edit objects. */
+function normalizeEdits(edits: unknown): unknown {
+  if (typeof edits === "string") {
+    const trimmed = edits.trim();
+    if (!trimmed) return edits;
+    const parsed = jsonParseWithNewlineFix(trimmed);
+    if (Array.isArray(parsed)) return normalizeEdits(parsed);
+    if (isEditObject(parsed)) return [parsed];
+    throw new Error(
+      `edit: could not parse the "edits" string as a JSON array. ${EDITS_SHAPE_HINT}`,
+    );
+  }
+  if (isEditObject(edits)) return [edits];
+  if (!Array.isArray(edits)) return edits;
+  return edits.map((entry) => {
+    if (typeof entry !== "string") return entry;
+    const parsed = jsonParseWithNewlineFix(entry);
+    if (isEditObject(parsed)) return parsed;
+    throw new Error(`edit: could not parse edits entry as an edit object. ${EDITS_SHAPE_HINT}`);
+  });
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -618,6 +653,28 @@ const inferInsertionMissingOldText: Preprocessor = {
 
 const PREPROCESSORS: readonly Preprocessor[] = [
   parseStringifiedEdits,
+  filterEmptyEdits,
+  {
+    kind: "structural",
+    selector: "/edits",
+    ruleId: "normalize-edits",
+    apply: (value) => {
+      if (value === undefined || value === null) return undefined;
+      if (Array.isArray(value) && value.every((entry) => typeof entry !== "string"))
+        return undefined;
+      try {
+        return {
+          value: normalizeEdits(value),
+          note: 'Normalized `edits` into an array of edit objects for tool "edit". Send `edits` as an array next time.',
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${message} Send \`edits\` as a JSON array of { oldText, newText } objects.`,
+        );
+      }
+    },
+  },
   filterEmptyEdits,
   dropEmptyEditObjects,
   ...aliasPreprocessors,

@@ -96,7 +96,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
     name: "edit",
     label: "edit",
     description:
-      "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. If the text to replace appears more than once, include an anchor string from nearby unique text to restrict the search to that region.",
+      'Edit a single file using exact text replacement. "edits" is always an array of edit objects, even for a single edit. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. If the text to replace appears more than once, include an anchor string from nearby unique text to restrict the search to that region.',
     promptSnippet:
       "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
     promptGuidelines: [
