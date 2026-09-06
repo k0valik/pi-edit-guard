@@ -37,12 +37,19 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
   // mutation (edit/write/undo) exactly once — the executor ALSO refreshes,
   // so counting both would report each heal twice.
   const selfRefreshTracked = (path: string): void => {
+    // Check staleness BEFORE refreshing — selfRefresh() clears the warned
+    // state, so we must sample first. Only emit telemetry when there was
+    // an actual stale condition to heal; the unconditional emit inflated
+    // stale_read.self_healed counts to ~1 per edit call.
+    const wasStale = !registry.isFresh(path);
     registry.selfRefresh(path);
-    telemetry.record({
-      type: "stale_read.self_healed",
-      timestamp: Date.now(),
-      path,
-    });
+    if (wasStale) {
+      telemetry.record({
+        type: "stale_read.self_healed",
+        timestamp: Date.now(),
+        path,
+      });
+    }
   };
 
   pi.on("tool_result", async (event, ctx) => {
