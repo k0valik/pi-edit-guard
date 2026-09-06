@@ -14,6 +14,7 @@ import { createPiMock, makeCtx } from "../packages/pi-base/src/pi-mock.js";
 import { registerStaleReadObserver } from "../src/platform/hooks/stale-read.js";
 import { ReadRegistry } from "../src/guards/stale-read/registry.js";
 import { registerEditTool } from "../src/platform/tools/edit.js";
+import { telemetry } from "../src/telemetry.js";
 
 let dir: string;
 
@@ -346,5 +347,98 @@ describe("stale-read hook — advisory passes, oldTexts forwarded", () => {
       makeCtx({ cwd: dir }),
     );
     expect(result).toBeUndefined(); // proceed; tool layer appends the advisory
+  });
+});
+
+describe("stale_read.self_healed telemetry gating", () => {
+  // The telemetry counter is cumulative across tests, so we order them
+  // to verify deltas: 0 → 1 → 1 → 2 → 2.
+
+  it("does NOT emit self_healed when the file is fresh", async () => {
+    const pi = createPiMock();
+    const handles = registerStaleReadObserver(pi as unknown as ExtensionAPI);
+    const file = join(dir, "telemetry-fresh-edit.txt");
+    writeFileSync(file, "line1\nline2\n");
+
+    handles.record(file);
+    // File is fresh — assertFresh returns null, staleOnToolCall not set.
+
+    await pi.emit("tool_call", { toolName: "edit", input: { path: file } }, makeCtx({ cwd: dir }));
+
+    await pi.emit("tool_result", {
+      toolName: "edit",
+      isError: false,
+      input: { path: file },
+    });
+
+    const stats = telemetry.stats();
+    expect(stats.staleReadSelfHealed).toBe(0);
+  });
+
+  it("emits self_healed when a stale edit succeeds", async () => {
+    const pi = createPiMock();
+    const handles = registerStaleReadObserver(pi as unknown as ExtensionAPI);
+    const file = join(dir, "telemetry-stale-edit.txt");
+    writeFileSync(file, "line1\nline2\n");
+
+    handles.record(file);
+    utimesSync(file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
+    expect(handles.isFresh(file)).toBe(false);
+
+    // Simulate successful edit — tool_call sets staleOnToolCall,
+    // tool_result fires selfRefreshTracked which should emit self_healed.
+    await pi.emit("tool_call", { toolName: "edit", input: { path: file } }, makeCtx({ cwd: dir }));
+
+    await pi.emit("tool_result", {
+      toolName: "edit",
+      isError: false,
+      input: { path: file },
+    });
+
+    const stats = telemetry.stats();
+    expect(stats.staleReadSelfHealed).toBe(1);
+  });
+
+  it("does NOT emit self_healed on failed edit", async () => {
+    const pi = createPiMock();
+    const handles = registerStaleReadObserver(pi as unknown as ExtensionAPI);
+    const file = join(dir, "telemetry-failed-edit.txt");
+    writeFileSync(file, "line1\nline2\n");
+
+    handles.record(file);
+    utimesSync(file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
+
+    await pi.emit("tool_call", { toolName: "edit", input: { path: file } }, makeCtx({ cwd: dir }));
+
+    await pi.emit("tool_result", {
+      toolName: "edit",
+      isError: true,
+      input: { path: file },
+    });
+
+    const stats = telemetry.stats();
+    expect(stats.staleReadSelfHealed).toBe(1); // still 1 — failed edit does not emit
+  });
+
+  it("emits self_healed when a stale write succeeds", async () => {
+    const pi = createPiMock();
+    const handles = registerStaleReadObserver(pi as unknown as ExtensionAPI);
+    const file = join(dir, "telemetry-stale-write.txt");
+    writeFileSync(file, "original\n");
+
+    handles.record(file);
+    utimesSync(file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
+    expect(handles.isFresh(file)).toBe(false);
+
+    // Write tool — no executor selfRefresh, so tool_result samples isFresh
+    // directly and sees the stale state.
+    await pi.emit("tool_result", {
+      toolName: "write",
+      isError: false,
+      input: { path: file },
+    });
+
+    const stats = telemetry.stats();
+    expect(stats.staleReadSelfHealed).toBe(2); // incremented from 1 → 2
   });
 });
