@@ -1,6 +1,6 @@
 {
   "name": "pi-edit-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Override the built-in edit tool in pi coding agent to make edits reliable where models fail or struggle with the built-in one",
   "keywords": [
     "code-editing",
