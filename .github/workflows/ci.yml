@@ -20,7 +20,7 @@ jobs:
     outputs:
       has_affected: ${{ steps.compute.outputs.has_affected }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -52,12 +52,15 @@ jobs:
       - name: Check PR body for checked Full CI checkbox
         id: pr-check
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v9
-        with:
-          result-encoding: string
-          script: |
-            const body = context.payload.pull_request?.body || '';
-            return (body.match(/- \[x\]\s*full ci/i) !== null).toString();
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="$(gh pr view "${{ github.event.pull_request.number }}" --json body --jq '.body // ""')"
+          if echo "$BODY" | grep -qiE '-\s*\[x\]\s*full ci'; then
+            echo "result=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Compute affected packages
         id: compute
@@ -84,10 +87,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820782786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -104,10 +106,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820782786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -123,10 +124,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820782786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -143,7 +143,7 @@ jobs:
       pull-requests: write
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: fallow-rs/fallow@v3.9.1
@@ -160,10 +160,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820782786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: pnpm
