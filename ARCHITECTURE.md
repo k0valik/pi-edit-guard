@@ -296,7 +296,8 @@ Each firing emits `edit.autopatch`. Gates that fail fall through silently — th
     expansion ratios ≥ 3.5×–6× plus internal-duplicate + density gates; context before/after duplication with
     5-line / 70% gates; prefix echo with 24-char / 3× / 8% gates; cascading duplicates), `coherenceCheck`
     (`focusLines` ±6, gated by `coherenceCheckEnabled`, default off — see §9), semantic warnings for
-    `token_overlap` placements (always on — drift risk, verify placement).
+    `token_overlap` placements (always on — drift risk, verify placement), confusable-glyph warnings for
+    curated lookalike classes NFKC does not fold (always on — names both codepoints, see §8).
 11. Telemetry `edit.applied` always (+ `edit.partial` on partial applies); success `details` carry `baseContent` /
     `newContent` (LF-normalized pre/post), `rawContent` / `rawResult` (BOM-stripped raw pre/post), `bom`,
     `originalEnding`, `encoding`, `editsApplied` (sorted block-index _list_), `passNames`, `durationMs`, warnings,
@@ -374,6 +375,14 @@ tool's entire window. Counters: `loopsBroken` / `errorsEnhanced`.
   (`BRACE_BALANCE_ENABLED = false`) pending false-positive tuning.
 - **Semantic** (`buildSemanticWarnings` in `execute.ts`, always on): `token_overlap` placements name their line
   range and ask the agent to re-read and verify — the text did not match exactly.
+- **Confusable** (`buildConfusableWarnings` in `execute.ts`, always on): curated lookalike classes NFKC does
+  not fold (currently U+EE9C / U+2E9C / U+2301 — extend with observed pairs only). Two checks per applied
+  edit: search-side (`oldText` carries a class member the matched span lacks while the span carries another —
+  the match bridged a lookalike gap) and insert-side (`newText` introduces a class member absent from the
+  pre-edit file while the file uses a lookalike — catches pure insertions). Both name both codepoints and
+  nudge toward `\u{...}` escapes. Verbatim matches can never fire. Class members in source MUST stay as
+  `\u` escapes — a literal invisible glyph is unreviewable and one clipboard round-trip away from becoming
+  the corruption this check detects.
 
 ## 9 — Undo store (`platform/tools/undo.ts` + `history/store.ts`)
 

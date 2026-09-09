@@ -69,6 +69,68 @@ function buildSemanticWarnings(applied: AppliedEdit[], content: string): string[
   });
 }
 
+// Helper: warnings for edits that cross a confusable-glyph gap.
+// Models demonstrably mix up lookalike codepoints NFKC does NOT fold
+// (mined 2026-09-09: U+EE9C PUA ↔ U+2E9C CJK radical ↔ U+2301 electric
+// arrow). Fuzzy matching bridges the gap silently, so a wrong-but-similar
+// SEARCH applies and a wrong-but-similar REPLACE corrupts icon bytes
+// invisibly (bytes ee ba 9c became e2 ba 9c while the test assertions kept
+// passing on the wrong codepoint). Two checks, both advisory and non-blocking:
+// search-side (oldText vs the matched file span — catches drifted SEARCH
+// text, including the case that cost a 37 s LCS grind) and insert-side
+// (newText vs the whole pre-edit file — catches pure insertions, where the
+// search-side check has no glyph to compare). Verbatim matches can never
+// fire: every oldText char is in the matched span by construction.
+// Curated classes only — extend with observed pairs, never speculative ones.
+// INVISIBLE-GLYPH HYGIENE: the class members below MUST stay as \u escapes.
+// A literal here is unreadable, unreviewable, and one clipboard round-trip
+// away from becoming the very corruption this helper detects (observed:
+// U+2064 silently substituted for U+EE9C while writing this table).
+const CONFUSABLE_CLASSES: readonly (readonly string[])[] = [["\uEE9C", "\u2E9C", "\u2301"]];
+
+function codepointLabel(ch: string): string {
+  const cp = ch.codePointAt(0) ?? 0;
+  return `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+function classChars(s: string, cls: readonly string[]): Set<string> {
+  const found = new Set<string>();
+  for (const ch of cls) if (s.includes(ch)) found.add(ch);
+  return found;
+}
+
+export function buildConfusableWarnings(applied: AppliedEdit[], preEditContent: string): string[] {
+  const warnings: string[] = [];
+  const fileSets = CONFUSABLE_CLASSES.map((cls) => classChars(preEditContent, cls));
+  for (const a of applied) {
+    const idx = a.blockIndex ?? 0;
+    CONFUSABLE_CLASSES.forEach((cls, ci) => {
+      const oldHit = classChars(a.edit.oldText, cls);
+      const actualHit = classChars(a.match.actual, cls);
+      for (const c of oldHit) {
+        if (!actualHit.has(c) && actualHit.size > 0) {
+          const fileChars = [...actualHit].map(codepointLabel).join("/");
+          warnings.push(
+            `[CONFUSABLE GLYPH] edits[${idx}]: oldText uses ${codepointLabel(c)} where the file has ${fileChars} — matched across a lookalike gap; verify the codepoints (prefer \\u{...} escapes for invisible glyphs).`,
+          );
+          break;
+        }
+      }
+      const fileHit = fileSets[ci]!;
+      for (const c of classChars(a.edit.newText, cls)) {
+        if (!fileHit.has(c) && fileHit.size > 0) {
+          const fileChars = [...fileHit].map(codepointLabel).join("/");
+          warnings.push(
+            `[CONFUSABLE GLYPH] edits[${idx}]: newText introduces ${codepointLabel(c)} but the file uses lookalike ${fileChars} — verify the intended codepoint (prefer \\u{...} escapes for invisible glyphs).`,
+          );
+          break;
+        }
+      }
+    });
+  }
+  return warnings;
+}
+
 // Helper: compute the set of 1-indexed line numbers touched by applied edits.
 // Used to scope advisory coherence warnings to the changed region so we do
 // not report unrelated historic jumps elsewhere in the file.
@@ -373,6 +435,7 @@ export async function executeFile(
       // duplicates from earlier edits in the same call.
       const corruptionWarnings = detectDuplicatedBlocks(newContentRaw, result.applied);
       const semanticWarnings = buildSemanticWarnings(result.applied, normContent);
+      const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
 
       const dir = resolvedPath.split(/[\\/]/).slice(0, -1).join("/") || ".";
       try {
@@ -463,6 +526,9 @@ export async function executeFile(
       if (semanticWarnings.length > 0) {
         message += "\n" + semanticWarnings.join("\n");
       }
+      if (confusableWarnings.length > 0) {
+        message += "\n" + confusableWarnings.join("\n");
+      }
 
       return {
         content: [{ type: "text", text: message }],
@@ -492,6 +558,7 @@ export async function executeFile(
           corruptionWarnings,
           postWriteWarnings,
           semanticWarnings,
+          confusableWarnings,
           diagnostics,
           appliedEdits: result.applied,
           failedEdits: result.failed,
@@ -507,6 +574,7 @@ export async function executeFile(
     // Advisory structural-integrity check after splices but before write.
     const corruptionWarnings = detectDuplicatedBlocks(newContentRaw, result.applied);
     const semanticWarnings = buildSemanticWarnings(result.applied, normContent);
+    const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
 
     // 6. Atomic write: temp file + rename in the same directory
     const dir = resolvedPath.split(/[\\/]/).slice(0, -1).join("/") || ".";
@@ -588,7 +656,12 @@ export async function executeFile(
     });
 
     const successText = `Patched ${path}: ${result.applied.length} edit(s) applied.`;
-    const allWarnings = [...semanticWarnings, ...corruptionWarnings, ...postWriteWarnings];
+    const allWarnings = [
+      ...semanticWarnings,
+      ...corruptionWarnings,
+      ...postWriteWarnings,
+      ...confusableWarnings,
+    ];
     const text = allWarnings.length > 0 ? `${successText}\n${allWarnings.join("\n")}` : successText;
 
     return {
@@ -621,6 +694,7 @@ export async function executeFile(
         corruptionWarnings,
         postWriteWarnings,
         semanticWarnings,
+        confusableWarnings,
         diagnostics: outcome.diagnostics?.filter((d) => d.status === "applied"),
       },
     };

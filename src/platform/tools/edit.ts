@@ -64,6 +64,8 @@ export interface EditGuardToolDetails extends EditToolDetails {
     postWriteWarnings: string[];
     /** Semantic-placement advisories (token_overlap matches). */
     semanticWarnings: string[];
+    /** Confusable-glyph advisories (lookalike codepoint gaps). */
+    confusableWarnings: string[];
     isPartial?: boolean;
     appliedCount?: number;
     failedCount?: number;
@@ -154,6 +156,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             coherenceWarnings: string[];
             postWriteWarnings: string[];
             semanticWarnings?: string[];
+            confusableWarnings?: string[];
             closestCandidate?: { similarity: number; lineRange?: { start: number; end: number } };
             isPartial: boolean;
             appliedCount?: number;
@@ -196,6 +199,8 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               (result.details as { postWriteWarnings?: string[] })?.postWriteWarnings ?? [],
             semanticWarnings:
               (result.details as { semanticWarnings?: string[] })?.semanticWarnings ?? [],
+            confusableWarnings:
+              (result.details as { confusableWarnings?: string[] })?.confusableWarnings ?? [],
             closestCandidate: (
               result.details as {
                 closestCandidate?: {
@@ -247,6 +252,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             corruptionWarnings,
             postWriteWarnings,
             semanticWarnings,
+            confusableWarnings,
           } = result.details as {
             baseContent: string;
             newContent: string;
@@ -256,6 +262,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             corruptionWarnings?: string[];
             postWriteWarnings?: string[];
             semanticWarnings?: string[];
+            confusableWarnings?: string[];
           };
 
           // Capture undo before returning — only when the edit actually changed
@@ -368,6 +375,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           for (const warning of semanticWarnings ?? []) {
             warnings.push(`- ${warning.replace(/\.$/, "")}`);
           }
+          for (const warning of confusableWarnings ?? []) {
+            warnings.push(`- ${warning.replace(/\.$/, "")}`);
+          }
           if (staleWarning) {
             warnings.push(`- ${staleWarning}`);
           }
@@ -429,6 +439,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                 corruptionWarnings: corruptionWarnings ?? [],
                 postWriteWarnings: postWriteWarnings ?? [],
                 semanticWarnings: semanticWarnings ?? [],
+                confusableWarnings: confusableWarnings ?? [],
                 isPartial,
                 appliedCount: (result.details as { appliedCount?: number }).appliedCount,
                 failedCount: (result.details as { failedCount?: number }).failedCount,
