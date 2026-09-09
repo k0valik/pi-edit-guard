@@ -63,6 +63,17 @@ export function lineTrimmedFind(original: string, oldContent: string): string | 
 // scored by LCS similarity. Execution order: after Tier 3 (see REPLACER_CHAIN).
 // ---------------------------------------------------------------------------
 
+/**
+ * Fail-closed DP budget for blockAnchorFind, in estimated LCS cells
+ * (candidates × middleOldChars²). One scored candidate costs
+ * ~middleOldChars × middleOrigChars cells; generic boundaries (e.g. `}`) on a
+ * 150-line query yielded 286 candidates × ~6 k middles ≈ 9 B cells ≈ 37 s
+ * live (2026-09-09). The cheaper block_anchor_levenshtein twin runs next in
+ * the chain and rescues equal-structure drift in ms, so refusing here rarely
+ * loses the edit — and never guesses. Precedent: token_overlap's budget guard.
+ */
+const BLOCK_ANCHOR_BUDGET_CELLS = 100_000_000;
+
 export function blockAnchorFind(original: string, oldContent: string): string | null {
   const oldLines = oldContent.split("\n");
   if (oldLines.length < 3) return null;
@@ -70,28 +81,39 @@ export function blockAnchorFind(original: string, oldContent: string): string | 
   const firstTrimmed = oldLines[0].trim();
   const lastTrimmed = oldLines[oldLines.length - 1].trim();
   const middleOld = oldLines.slice(1, -1).map((l) => l.trim());
+  const middleOldChars = middleOld.join("\n").length;
 
   const originalLines = original.split("\n");
-  const candidates: { start: number; end: number; sim: number }[] = [];
 
+  // Phase 1: enumerate boundary pairs (cheap trim compares, no DP).
+  const pairs: { start: number; end: number }[] = [];
   for (let i = 0; i < originalLines.length; i++) {
     if (originalLines[i].trim() !== firstTrimmed) continue;
     const windowEnd = Math.min(i + oldLines.length * 2, originalLines.length);
     for (let endIdx = i + oldLines.length - 1; endIdx < windowEnd; endIdx++) {
       if (endIdx >= originalLines.length) break;
       if (originalLines[endIdx].trim() !== lastTrimmed) continue;
-      const middleOrig = originalLines.slice(i + 1, endIdx).map((l) => l.trim());
-
-      let sim: number;
-      if (middleOld.length === 0 && middleOrig.length === 0) {
-        sim = 1.0;
-      } else if (middleOld.length === 0 || middleOrig.length === 0) {
-        continue;
-      } else {
-        sim = similarity(middleOld.join("\n"), middleOrig.join("\n"));
-      }
-      candidates.push({ start: i, end: endIdx, sim });
+      pairs.push({ start: i, end: endIdx });
     }
+  }
+
+  // Budget guard BEFORE any LCS DP (see BLOCK_ANCHOR_BUDGET_CELLS).
+  if (pairs.length * middleOldChars * middleOldChars > BLOCK_ANCHOR_BUDGET_CELLS) return null;
+
+  // Phase 2: score.
+  const candidates: { start: number; end: number; sim: number }[] = [];
+  for (const { start, end } of pairs) {
+    const middleOrig = originalLines.slice(start + 1, end).map((l) => l.trim());
+
+    let sim: number;
+    if (middleOld.length === 0 && middleOrig.length === 0) {
+      sim = 1.0;
+    } else if (middleOld.length === 0 || middleOrig.length === 0) {
+      continue;
+    } else {
+      sim = similarity(middleOld.join("\n"), middleOrig.join("\n"));
+    }
+    candidates.push({ start, end, sim });
   }
 
   if (candidates.length === 0) return null;
