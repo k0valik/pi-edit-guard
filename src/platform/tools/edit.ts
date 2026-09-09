@@ -84,7 +84,7 @@ export interface EditToolOptions {
   /** Stale-read registry for post-write self-refresh (from the hook). */
   registry?: {
     selfRefresh(path: string): void;
-    getStaleWarning(path: string): string | null;
+    getStaleWarning(path: string, oldTexts?: string[]): string | null;
   };
 }
 
@@ -173,8 +173,16 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           // the registry (self-heal), so asking afterwards would miss real
           // drift and only ever see our own write noise (mined 2026-08-18,
           // commit.md advisory-on-clean-edit). Raw path — the same key the
-          // tool_call hook recorded.
-          const staleWarning = options.registry?.getStaleWarning?.(path);
+          // tool_call hook recorded. oldTexts gate the surface: a verbatim-
+          // applicable splice proceeds silently (formatter drift elsewhere
+          // is not this edit's problem); the advisory fires only when drift
+          // plausibly affects the search texts.
+          const staleWarning = options.registry?.getStaleWarning?.(
+            path,
+            edits
+              .map((e) => (typeof e?.oldText === "string" ? e.oldText : ""))
+              .filter((t) => t.length > 0),
+          );
 
           const result = await executeFile(path, edits, {
             cwd: ctx.cwd,

@@ -126,6 +126,9 @@ describe("edit tool stale-read warning", () => {
     expect(result.details.diff).toBeDefined();
     expect(result.content[0]?.text).toContain("[WARNINGS]");
     expect(result.content[0]?.text).toContain("- [stale-read advisory]");
+    // The tool forwards the call's search texts so the registry can gate
+    // the surface on verbatim-safety (formatter noise stays silent).
+    expect(getStaleWarning).toHaveBeenCalledWith(file, ["line1"]);
   });
 
   it("does not append a warning when getStaleWarning returns null", async () => {
@@ -347,6 +350,63 @@ describe("stale-read hook — advisory passes, oldTexts forwarded", () => {
       makeCtx({ cwd: dir }),
     );
     expect(result).toBeUndefined(); // proceed; tool layer appends the advisory
+  });
+});
+
+describe("formatter noise end to end (real registry + real edit tool)", () => {
+  it("a verbatim-safe edit after external formatter drift lands with NO stale advisory", async () => {
+    // Mined 2026-09: agent reads → oxfmt/prettier rewrites (target lines
+    // intact) → edit lands fine but the advisory spammed result text.
+    const pi = createPiMock();
+    const _handles = registerStaleReadObserver(pi as unknown as ExtensionAPI);
+    // NOTE: pass the live registry object (method-call form keeps `this`);
+    // the executor's detached selfRefresh is best-effort by design.
+    registerEditTool(pi as unknown as ExtensionAPI, {
+      registry: _handles.registry,
+    });
+    const file = join(dir, "formatter-noise-e2e.txt");
+    writeFileSync(file, "alpha\nbeta\ngamma\n");
+
+    await pi.emit(
+      "tool_result",
+      { toolName: "read", isError: false, input: { path: file } },
+      makeCtx({ cwd: dir }),
+    );
+
+    // External formatter drift: content rewritten, target line intact.
+    writeFileSync(file, "alpha\nbeta\ngamma\n// fmt footer\n");
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(file, future, future);
+
+    const callResult = await pi.emit(
+      "tool_call",
+      {
+        toolName: "edit",
+        input: { path: file, edits: [{ oldText: "beta", newText: "BETA" }] },
+      },
+      makeCtx({ cwd: dir }),
+    );
+    expect(callResult).toBeUndefined(); // verbatim-safe downgrade: proceed
+
+    const tool = pi.tools[0] as {
+      execute: (
+        id: string,
+        params: unknown,
+        signal: undefined,
+        onUpdate: undefined,
+        ctx: ReturnType<typeof makeCtx>,
+      ) => Promise<{ content: Array<{ text?: string }> }>;
+    };
+    const result = await tool.execute(
+      "call-1",
+      { path: file, edits: [{ oldText: "beta", newText: "BETA" }] },
+      undefined,
+      undefined,
+      makeCtx({ cwd: dir }),
+    );
+
+    expect(result.content[0]?.text).toContain("Successfully replaced 1 block(s)");
+    expect(result.content[0]?.text).not.toContain("[stale-read advisory]");
   });
 });
 

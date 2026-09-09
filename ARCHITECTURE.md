@@ -331,7 +331,9 @@ Pure `ReadRegistry` (injected `stat`/`readFile`/`now`/`baseDir`, keyed by `resol
 own post-write `selfRefresh`, so `read → write → edit` never self-blocks); `edit` `tool_call` →
 `assertFresh(path, { oldTexts })` with a per-`mtime` ladder — same drift → advisory, new drift → error — except
 _verbatim-safe_ edits (every `oldText` still present in current content, CRLF-normalized) downgrade to advisory on
-first contact. Freshness compares `mtimeMs` against `max(lastRead, lastEdit) + tolerance` (default 500 ms,
+first contact. The result-text advisory itself is gated the same way: `getStaleWarning(path, oldTexts)` stays
+silent when the splice is provably applicable (formatter drift elsewhere is not this edit's problem) and warns only
+when drift plausibly affects the search texts. Freshness compares `mtimeMs` against `max(lastRead, lastEdit) + tolerance` (default 500 ms,
 `staleReadToleranceMs`); `warned`/`driftMtime` reset on every fresh `record`/`selfRefresh`. Telemetry:
 `stale_read.blocked` / `stale_read.self_healed`.
 
