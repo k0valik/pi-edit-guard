@@ -111,6 +111,21 @@ describe("already-applied detection", () => {
     expect(error.message).toContain("line 2");
     expect(error.message).toContain("line 5");
   });
+
+  it("does not fire when REPLACE is contained in SEARCH (tail-line misfire)", () => {
+    // Mined live 2026-09-09 (ui_integration.test.ts): oldText was a 2k-char
+    // block ending in the throttle-test line; newText was JUST that 73-char
+    // line, present once at line 470. Presence is expected pre-edit — the
+    // line rides inside the assumed context — so it proves nothing about
+    // application. Must fall through to honest not-found, not already-applied.
+    const tailLine = '  it("throttles rendering correctly to avoid TUI flickers", async () => {';
+    const oldText = ['  it("ghost test one", async () => {', "  });", tailLine].join("\n");
+    expect(tailLine.length).toBeGreaterThanOrEqual(64); // STRONG range, like the wild shape
+    const content = ["header line", tailLine, "trailing line"].join("\n");
+    const result = resolveBlocks(content, [{ path: "f.ts", oldText, newText: tailLine }], "f.ts");
+    expect(result.ok).toBe(false);
+    expect(firstError(result).kind).toBe("not-found");
+  });
 });
 
 describe("redundant-anchor drop", () => {

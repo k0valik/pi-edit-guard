@@ -432,13 +432,22 @@ function doResolvePass(content: string, blocks: ParsedBlock[], path: string): Re
       // may just be common content (a comment, a boilerplate line) rather
       // than proof the edit was applied — require either a unique occurrence
       // or a long enough replacement to make coincidence implausible.
+      // Containment guard (mined 2026-09-09, ui_integration.test.ts): when the
+      // REPLACE text is contained in the SEARCH text, its presence is expected
+      // in the pre-edit state — it rides along inside the assumed context —
+      // and carries zero evidence of application. Without this, a long oldText
+      // whose tail line doubles as a short newText misfires (73-char newText,
+      // 1 occurrence, "already applied" on an edit that never landed).
       const normalizedNew = normalizeNewlines(block.newText);
       // Length gate FIRST: countOccurrences with an empty needle never
       // advances its scan position (deletion edits have newText === "").
       const plausibleLength = normalizedNew.length >= ALREADY_APPLIED_MIN_CHARS;
+      const containedInSearch =
+        plausibleLength && normalizeNewlines(block.oldText).includes(normalizedNew);
       const newOccurrences = plausibleLength ? countOccurrences(content, normalizedNew) : 0;
       const plausibleAlreadyApplied =
         plausibleLength &&
+        !containedInSearch &&
         (newOccurrences === 1 || normalizedNew.length >= ALREADY_APPLIED_STRONG_CHARS);
       if (plausibleAlreadyApplied && newOccurrences > 0) {
         // Evidence, not verdict: cite WHERE the REPLACE text lives so the
