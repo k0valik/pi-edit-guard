@@ -174,11 +174,22 @@ export class ReadRegistry {
     });
   }
 
-  /** Advisory warning for the edit tool result, without changing state. */
-  getStaleWarning(path: string): string | null {
+  /**
+   * Advisory warning for the edit tool result, without changing state.
+   *
+   * Gated on verbatim-safety: when the caller's search texts are ALL still
+   * present in current content, the splice is provably applicable and the
+   * drift is elsewhere (formatter noise — the common case), so there is
+   * nothing to verify beyond the result diff and no advisory surfaces.
+   * The warning fires only when drift plausibly affects THIS edit
+   * (a search text is missing, or safety is unknown: no oldTexts / no
+   * readFile injection). The hard block in assertFresh() is untouched.
+   */
+  getStaleWarning(path: string, oldTexts?: string[]): string | null {
     const key = this.normalize(path);
     if (this.isFresh(path)) return null;
     if (!this.warned.has(key)) return null;
+    if (this.isVerbatimSafe(key, oldTexts)) return null;
     return "[stale-read advisory] The file may have changed since your last read. The edit will proceed, but verify the result.";
   }
 

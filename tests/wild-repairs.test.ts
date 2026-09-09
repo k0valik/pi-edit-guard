@@ -127,7 +127,7 @@ describe("prepareEditArguments — malformed stringified edits", () => {
     } catch (err) {
       message = err instanceof Error ? err.message : String(err);
     }
-    expect(message).toContain("double-encoded JSON STRING");
+    expect(message).toContain("edits must be a JSON array of objects");
   });
 });
 

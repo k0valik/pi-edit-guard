@@ -173,7 +173,7 @@ stay last.
 | 4   | `indentation_flexible` (`indentationFlexibleFind`)              | 3                             | ignores leading indentation and blank lines, compares trimmed lines sequentially within a `3×` search window                                                                                                                                                                                                                                                                                                                                               | skips blank file lines while scanning                                                                                                                  |
 | 5   | `escape_normalized` (`escapeNormalizedFind`)                    | 3                             | unescapes `\\`, `\n`, `\t`, `\r`, `\"`, `\'`, `` \` ``, `\$` then retries verbatim                                                                                                                                                                                                                                                                                                                                                                         | fires only when unescaping changes the query                                                                                                           |
 | 6   | `unicode_normalized` (`unicodeNormalizedFind`)                  | 3                             | NFKC + punctuation map (curly quotes → ASCII, en/em dash → `-`); NFKC covers NBSP/ligatures, the map covers what NFKC doesn't; maps the normalized hit back to verbatim bytes via `mapNormalizedIndex`                                                                                                                                                                                                                                                     | skipped when query already normalized _and_ file is pure ASCII                                                                                         |
-| 7   | `block_anchor` (`blockAnchorFind`)                              | 4 — anchored fuzzy            | first/last trimmed lines must match exactly; middle scored by LCS `similarity`; window ≤ `2×` query lines                                                                                                                                                                                                                                                                                                                                                  | needs ≥3 lines; threshold 0.3 single candidate / 0.5 multiple                                                                                          |
+| 7   | `block_anchor` (`blockAnchorFind`)                              | 4 — anchored fuzzy            | first/last trimmed lines must match exactly; middle scored by LCS `similarity`; window ≤ `2×` query lines; boundary pairs enumerated before any DP and refused when `pairs × middleChars²` exceeds `BLOCK_ANCHOR_BUDGET_CELLS` (100M) — over-budget shapes return null fast so the cheaper Levenshtein twin below can rescue them instead of grinding                                                                                                      | needs ≥3 lines; threshold 0.3 single candidate / 0.5 multiple                                                                                          |
 | 8   | `block_anchor_levenshtein` (`blockAnchorLevenshteinFind`)       | 4                             | same anchors; middle scored by per-line raw-Levenshtein mean (equal-length middles only) — deliberately _raw_: a single proven line must not carry a weak window over the gate                                                                                                                                                                                                                                                                             | needs ≥3 lines; 0.3 / 0.5 thresholds                                                                                                                   |
 | 9   | `fuzzy_boundary` (`fuzzyBoundaryFind`, `searchOnly`)            | 4                             | whole-block similarity with _fuzzy_ boundaries: fixed window = query line count, mean per-line Levenshtein ≥ **0.9**, at least one boundary line ≥ **0.75**, exactly one qualifying window in the file; provable pairs (exact-after-trim or single substitution on lines ≥ 8 chars, i.e. implied similarity ≥ 0.875) score 1.0 for the _anchor prefilter only_ — the mean keeps raw scores; length-ratio floor shortcut + early-abandon keep it O(bounded) | ≥3 lines; `FUZZY_BOUNDARY_SIM = 0.9`, `FUZZY_BOUNDARY_ANCHOR = 0.75`, `PROVABLE_SUBSTITUTION_MIN_LEN = 8`; non-unique → null                           |
 | 10  | `trimmed_boundary` (`trimmedBoundaryFind`)                      | 5 — loose legacy              | whole-block trim retry, then first/last-line contains-anchors with `+2`-line slop                                                                                                                                                                                                                                                                                                                                                                          | fires only when trimming changes the query                                                                                                             |
@@ -296,7 +296,8 @@ Each firing emits `edit.autopatch`. Gates that fail fall through silently — th
     expansion ratios ≥ 3.5×–6× plus internal-duplicate + density gates; context before/after duplication with
     5-line / 70% gates; prefix echo with 24-char / 3× / 8% gates; cascading duplicates), `coherenceCheck`
     (`focusLines` ±6, gated by `coherenceCheckEnabled`, default off — see §9), semantic warnings for
-    `token_overlap` placements (always on — drift risk, verify placement).
+    `token_overlap` placements (always on — drift risk, verify placement), confusable-glyph warnings for
+    curated lookalike classes NFKC does not fold (always on — names both codepoints, see §8).
 11. Telemetry `edit.applied` always (+ `edit.partial` on partial applies); success `details` carry `baseContent` /
     `newContent` (LF-normalized pre/post), `rawContent` / `rawResult` (BOM-stripped raw pre/post), `bom`,
     `originalEnding`, `encoding`, `editsApplied` (sorted block-index _list_), `passNames`, `durationMs`, warnings,
@@ -330,7 +331,9 @@ Pure `ReadRegistry` (injected `stat`/`readFile`/`now`/`baseDir`, keyed by `resol
 own post-write `selfRefresh`, so `read → write → edit` never self-blocks); `edit` `tool_call` →
 `assertFresh(path, { oldTexts })` with a per-`mtime` ladder — same drift → advisory, new drift → error — except
 _verbatim-safe_ edits (every `oldText` still present in current content, CRLF-normalized) downgrade to advisory on
-first contact. Freshness compares `mtimeMs` against `max(lastRead, lastEdit) + tolerance` (default 500 ms,
+first contact. The result-text advisory itself is gated the same way: `getStaleWarning(path, oldTexts)` stays
+silent when the splice is provably applicable (formatter drift elsewhere is not this edit's problem) and warns only
+when drift plausibly affects the search texts. Freshness compares `mtimeMs` against `max(lastRead, lastEdit) + tolerance` (default 500 ms,
 `staleReadToleranceMs`); `warned`/`driftMtime` reset on every fresh `record`/`selfRefresh`. Telemetry:
 `stale_read.blocked` / `stale_read.self_healed`.
 
@@ -374,6 +377,14 @@ tool's entire window. Counters: `loopsBroken` / `errorsEnhanced`.
   (`BRACE_BALANCE_ENABLED = false`) pending false-positive tuning.
 - **Semantic** (`buildSemanticWarnings` in `execute.ts`, always on): `token_overlap` placements name their line
   range and ask the agent to re-read and verify — the text did not match exactly.
+- **Confusable** (`buildConfusableWarnings` in `execute.ts`, always on): curated lookalike classes NFKC does
+  not fold (currently U+EE9C / U+2E9C / U+2301 — extend with observed pairs only). Two checks per applied
+  edit: search-side (`oldText` carries a class member the matched span lacks while the span carries another —
+  the match bridged a lookalike gap) and insert-side (`newText` introduces a class member absent from the
+  pre-edit file while the file uses a lookalike — catches pure insertions). Both name both codepoints and
+  nudge toward `\u{...}` escapes. Verbatim matches can never fire. Class members in source MUST stay as
+  `\u` escapes — a literal invisible glyph is unreviewable and one clipboard round-trip away from becoming
+  the corruption this check detects.
 
 ## 9 — Undo store (`platform/tools/undo.ts` + `history/store.ts`)
 

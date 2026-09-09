@@ -78,6 +78,9 @@ describe("edit override — native contract parity", () => {
     const registered = pi.tools[0] as { name: string; description: string };
     expect(registered.name).toBe("edit");
     expect(registered.description).toContain("Edit a single file using exact text replacement");
+    expect(registered.description).toContain(
+      '"edits" is always an array of edit objects, even for a single edit',
+    );
   });
 
   it("success text + details shape match native (diff/patch/firstChangedLine)", async () => {

@@ -26,6 +26,11 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
     readFile: (path: string) => readFileSync(path, "utf-8"),
   });
 
+  // Paths whose CURRENT drifted state we already reacted to in tool_call.
+  // Keyed by the absolute path; cleaned up in tool_result so the map never
+  // grows unbounded.
+  const staleOnToolCall = new Map<string, boolean>();
+
   // Record reads when the read tool returns content; self-heal after the
   // agent's OWN successful edit/write so the registry can distinguish its
   // own writes from external modification (read → write → edit must not
@@ -37,12 +42,20 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
   // mutation (edit/write/undo) exactly once — the executor ALSO refreshes,
   // so counting both would report each heal twice.
   const selfRefreshTracked = (path: string): void => {
+    // For edit: the executor already called selfRefresh before tool_result
+    // fires, so isFresh would always be true.  Capture wasStale from the
+    // tool_call phase instead.
+    // For write/undo: no executor selfRefresh, so sampling now is correct.
+    const wasStale = staleOnToolCall.get(path) ?? !registry.isFresh(path);
     registry.selfRefresh(path);
-    telemetry.record({
-      type: "stale_read.self_healed",
-      timestamp: Date.now(),
-      path,
-    });
+    if (wasStale) {
+      telemetry.record({
+        type: "stale_read.self_healed",
+        timestamp: Date.now(),
+        path,
+      });
+    }
+    staleOnToolCall.delete(path);
   };
 
   pi.on("tool_result", async (event, ctx) => {
@@ -92,6 +105,12 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
 
     const error = registry.assertFresh(input.path, { oldTexts });
     if (!error) return;
+
+    // Record staleness for later telemetry emission in tool_result.
+    // (assertFresh already called isFresh internally — we reuse the result
+    // rather than double-statting the file.  staleRead.blocked is emitted
+    // below; stale_read.self_healed is emitted in tool_result on success.)
+    staleOnToolCall.set(input.path, true);
 
     if (error.kind === "stale-read-warning") {
       // Advisory flows through to the tool result via getStaleWarning();

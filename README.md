@@ -151,6 +151,7 @@ Pass 1 resolves every block against the original normalized content. Only if som
 
 - **Corruption heuristics** run on the spliced result before writing: inserted text duplicating a consecutive block from the matched region (with expansion-ratio gates), duplication of context adjacent to the splice, prefix echoes of the matched block (>= 20 chars), and cascading duplicates of previously inserted text. Short replacements (< 120 chars) are skipped to avoid false positives.
 - **Coherence check** (config `coherenceCheckEnabled`, default off) flags suspicious indentation jumps (> 8 spaces) between lines at the same brace depth within +/- 6 lines of the edited region; string-literal lines are skipped.
+- **Confusable-glyph check** (always on) flags edits that cross a lookalike-codepoint gap NFKC does not fold (curated classes, currently U+EE9C / U+2E9C / U+2301): `oldText` using a lookalike of the matched file text, or `newText` introducing a lookalike the file does not use. Both name the codepoints (U+XXXX) and suggest `\u{...}` escapes; verbatim matches never fire.
 - Warnings surface in the result text under `[WARNINGS]`, in `details.guard`, and as a UI notification when `warningsEnabled` is on.
 
 </details>

@@ -205,3 +205,72 @@ describe("ReadRegistry verbatim-safe downgrade", () => {
     expect(registry.assertFresh(p, { oldTexts: ["line two"] })?.kind).toBe("stale-read");
   });
 });
+
+describe("getStaleWarning verbatim gating", () => {
+  // Formatter-noise contract (mined 2026-09: oxfmt/prettier rewrites between
+  // read and edit; the splice still lands byte-for-byte, but the advisory in
+  // result text sent agents re-reading in circles). The advisory surfaces
+  // only when drift plausibly affects THIS edit.
+  it("stays silent when every oldText is still present (formatter drift elsewhere)", () => {
+    const { registry, touch } = makeRegistry({
+      mtime: 100,
+      content: FILE,
+      now: 1_000,
+    });
+    const p = "/repo/f.md";
+    registry.record(p);
+
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["line two"] })?.kind).toBe("stale-read-warning");
+    expect(registry.getStaleWarning(p, ["line two"])).toBeNull();
+  });
+
+  it("warns when a search text is missing from current content", () => {
+    const { registry, touch } = makeRegistry({
+      mtime: 100,
+      content: FILE,
+      now: 1_000,
+    });
+    const p = "/repo/f.md";
+    registry.record(p);
+
+    touch(5000);
+    expect(registry.assertFresh(p)?.kind).toBe("stale-read"); // first contact blocks
+    expect(registry.assertFresh(p)?.kind).toBe("stale-read-warning"); // repeat advises
+    expect(registry.getStaleWarning(p, ["line nine"])).toContain("[stale-read advisory]");
+  });
+
+  it("warns when safety is unknown (no oldTexts — legacy surface)", () => {
+    const { registry, touch } = makeRegistry({
+      mtime: 100,
+      content: FILE,
+      now: 1_000,
+    });
+    const p = "/repo/f.md";
+    registry.record(p);
+
+    touch(5000);
+    expect(registry.assertFresh(p)?.kind).toBe("stale-read");
+    expect(registry.getStaleWarning(p)).toContain("[stale-read advisory]");
+    expect(registry.getStaleWarning(p, [])).toContain("[stale-read advisory]");
+  });
+
+  it("warns when safety is unknown (no readFile injection — conservative)", () => {
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: 5000 }),
+      toleranceMs: 50,
+    });
+    const p = "/repo/f.md";
+    registry.record(p);
+    expect(registry.assertFresh(p)?.kind).toBe("stale-read");
+    expect(registry.getStaleWarning(p, ["line two"])).toContain("[stale-read advisory]");
+  });
+
+  it("stays silent when fresh regardless of oldTexts", () => {
+    const { registry } = makeRegistry({ mtime: 100, content: FILE });
+    const p = "/repo/f.md";
+    registry.record(p);
+    expect(registry.getStaleWarning(p, ["line nine"])).toBeNull();
+  });
+});

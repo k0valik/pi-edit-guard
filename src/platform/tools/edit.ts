@@ -64,6 +64,8 @@ export interface EditGuardToolDetails extends EditToolDetails {
     postWriteWarnings: string[];
     /** Semantic-placement advisories (token_overlap matches). */
     semanticWarnings: string[];
+    /** Confusable-glyph advisories (lookalike codepoint gaps). */
+    confusableWarnings: string[];
     isPartial?: boolean;
     appliedCount?: number;
     failedCount?: number;
@@ -82,7 +84,7 @@ export interface EditToolOptions {
   /** Stale-read registry for post-write self-refresh (from the hook). */
   registry?: {
     selfRefresh(path: string): void;
-    getStaleWarning(path: string): string | null;
+    getStaleWarning(path: string, oldTexts?: string[]): string | null;
   };
 }
 
@@ -96,7 +98,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
     name: "edit",
     label: "edit",
     description:
-      "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. If the text to replace appears more than once, include an anchor string from nearby unique text to restrict the search to that region.",
+      'Edit a single file using exact text replacement. "edits" is always an array of edit objects, even for a single edit. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. If the text to replace appears more than once, include an anchor string from nearby unique text to restrict the search to that region.',
     promptSnippet:
       "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
     promptGuidelines: [
@@ -154,6 +156,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             coherenceWarnings: string[];
             postWriteWarnings: string[];
             semanticWarnings?: string[];
+            confusableWarnings?: string[];
             closestCandidate?: { similarity: number; lineRange?: { start: number; end: number } };
             isPartial: boolean;
             appliedCount?: number;
@@ -170,8 +173,16 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           // the registry (self-heal), so asking afterwards would miss real
           // drift and only ever see our own write noise (mined 2026-08-18,
           // commit.md advisory-on-clean-edit). Raw path — the same key the
-          // tool_call hook recorded.
-          const staleWarning = options.registry?.getStaleWarning?.(path);
+          // tool_call hook recorded. oldTexts gate the surface: a verbatim-
+          // applicable splice proceeds silently (formatter drift elsewhere
+          // is not this edit's problem); the advisory fires only when drift
+          // plausibly affects the search texts.
+          const staleWarning = options.registry?.getStaleWarning?.(
+            path,
+            edits
+              .map((e) => (typeof e?.oldText === "string" ? e.oldText : ""))
+              .filter((t) => t.length > 0),
+          );
 
           const result = await executeFile(path, edits, {
             cwd: ctx.cwd,
@@ -196,6 +207,8 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
               (result.details as { postWriteWarnings?: string[] })?.postWriteWarnings ?? [],
             semanticWarnings:
               (result.details as { semanticWarnings?: string[] })?.semanticWarnings ?? [],
+            confusableWarnings:
+              (result.details as { confusableWarnings?: string[] })?.confusableWarnings ?? [],
             closestCandidate: (
               result.details as {
                 closestCandidate?: {
@@ -247,6 +260,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             corruptionWarnings,
             postWriteWarnings,
             semanticWarnings,
+            confusableWarnings,
           } = result.details as {
             baseContent: string;
             newContent: string;
@@ -256,6 +270,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             corruptionWarnings?: string[];
             postWriteWarnings?: string[];
             semanticWarnings?: string[];
+            confusableWarnings?: string[];
           };
 
           // Capture undo before returning — only when the edit actually changed
@@ -368,6 +383,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           for (const warning of semanticWarnings ?? []) {
             warnings.push(`- ${warning.replace(/\.$/, "")}`);
           }
+          for (const warning of confusableWarnings ?? []) {
+            warnings.push(`- ${warning.replace(/\.$/, "")}`);
+          }
           if (staleWarning) {
             warnings.push(`- ${staleWarning}`);
           }
@@ -429,6 +447,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                 corruptionWarnings: corruptionWarnings ?? [],
                 postWriteWarnings: postWriteWarnings ?? [],
                 semanticWarnings: semanticWarnings ?? [],
+                confusableWarnings: confusableWarnings ?? [],
                 isPartial,
                 appliedCount: (result.details as { appliedCount?: number }).appliedCount,
                 failedCount: (result.details as { failedCount?: number }).failedCount,

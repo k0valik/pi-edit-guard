@@ -246,4 +246,58 @@ describe("repairLifecycle note channel", () => {
     // A second correlate with the same args finds nothing (already consumed)
     expect(repairLifecycle.correlate("edit", repaired, "call-2")).toBeUndefined();
   });
+
+  it("passes through normal multi-edit array unchanged", () => {
+    const edits = [
+      { oldText: "x", newText: "y" },
+      { anchor: "fn f() {", oldText: "a", newText: "b" },
+    ];
+    const result = prepareEditArguments({
+      path: "/tmp/x.txt",
+      edits,
+    }) as { path: string; edits: Array<{ oldText: string; newText: string }> };
+    expect(result.edits).toEqual(edits);
+  });
+
+  it("repairs a single edit object sent without the array wrapper", () => {
+    const result = prepareEditArguments({
+      path: "/tmp/x.txt",
+      edits: { oldText: "x", newText: "y" },
+    }) as { path: string; edits: Array<{ oldText: string; newText: string }> };
+    expect(result.edits).toEqual([{ oldText: "x", newText: "y" }]);
+  });
+
+  it("repairs a stringified single edit object", () => {
+    const result = prepareEditArguments({
+      path: "/tmp/x.txt",
+      edits: JSON.stringify({ oldText: "x", newText: "y" }),
+    }) as { path: string; edits: Array<{ oldText: string; newText: string }> };
+    expect(result.edits).toEqual([{ oldText: "x", newText: "y" }]);
+  });
+
+  it("repairs an array whose entries are stringified edit objects", () => {
+    const result = prepareEditArguments({
+      path: "/tmp/x.txt",
+      edits: [JSON.stringify({ oldText: "x", newText: "y" })],
+    }) as { path: string; edits: Array<{ oldText: string; newText: string }> };
+    expect(result.edits).toEqual([{ oldText: "x", newText: "y" }]);
+  });
+
+  it("throws an actionable error for a malformed edits string", () => {
+    expect(() =>
+      prepareEditArguments({
+        path: "/tmp/x.txt",
+        edits: "[{oldText: x",
+      }),
+    ).toThrow(/edits must be a JSON array of objects/);
+  });
+
+  it("throws an actionable error for a malformed stringified entry", () => {
+    expect(() =>
+      prepareEditArguments({
+        path: "/tmp/x.txt",
+        edits: ["not json"],
+      }),
+    ).toThrow(/edits must be a JSON array of objects/);
+  });
 });
