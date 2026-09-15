@@ -66,6 +66,8 @@ export interface EditGuardToolDetails extends EditToolDetails {
     semanticWarnings: string[];
     /** Confusable-glyph advisories (lookalike codepoint gaps). */
     confusableWarnings: string[];
+    /** Ambiguous-placement advisories (auto-expand guesses from N sites). */
+    placementWarnings: string[];
     isPartial?: boolean;
     appliedCount?: number;
     failedCount?: number;
@@ -261,6 +263,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             postWriteWarnings,
             semanticWarnings,
             confusableWarnings,
+            placementWarnings,
           } = result.details as {
             baseContent: string;
             newContent: string;
@@ -271,6 +274,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
             postWriteWarnings?: string[];
             semanticWarnings?: string[];
             confusableWarnings?: string[];
+            placementWarnings?: string[];
           };
 
           // Capture undo before returning — only when the edit actually changed
@@ -386,6 +390,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           for (const warning of confusableWarnings ?? []) {
             warnings.push(`- ${warning.replace(/\.$/, "")}`);
           }
+          for (const warning of placementWarnings ?? []) {
+            warnings.push(`- ${warning.replace(/\.$/, "")}`);
+          }
           if (staleWarning) {
             warnings.push(`- ${staleWarning}`);
           }
@@ -448,6 +455,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
                 postWriteWarnings: postWriteWarnings ?? [],
                 semanticWarnings: semanticWarnings ?? [],
                 confusableWarnings: confusableWarnings ?? [],
+                placementWarnings: placementWarnings ?? [],
                 isPartial,
                 appliedCount: (result.details as { appliedCount?: number }).appliedCount,
                 failedCount: (result.details as { failedCount?: number }).failedCount,

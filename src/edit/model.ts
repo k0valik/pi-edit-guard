@@ -146,6 +146,8 @@ export interface EditDiagnostic {
   alternatives?: NearMissAlternative[];
   anchorFallback?: boolean;
   anchorWindowOverflow?: boolean;
+  /** Auto-expand disambiguated this many confirmed occurrences — placement is a guess, verify. */
+  ambiguousMatchCount?: number;
   /** Anchor ≈ oldText and matched nowhere — dropped, matching ran on oldText. */
   anchorRedundant?: boolean;
   fallbackCandidate?: NearMissAlternative;

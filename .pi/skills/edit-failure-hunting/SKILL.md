@@ -130,6 +130,37 @@ tests + fixtures on this branch.
   `chimera-recall-drift`); two former gone-diagnostic fixtures proved genuine
   rescues and were reclassified to `oldera-drifted-recovered`.
 
+### P6 — ambiguous auto-expand silently picks the wrong site (z-ai/glm-5.3-flash, mined 2026-09-14)
+
+- Shape: short generic oldText (a 3-line test ending) matched N tests;
+  `tryAutoExpand` found exactly one site whose extended context went unique
+  first and applied there — the WRONG test. Success text said nothing; the
+  model burned turns on test fallout before noticing.
+- Fix (advisory, non-blocking): the resolve stage records the confirmed
+  occurrence count (`diag.ambiguousMatchCount`) + lineRange; the executor
+  surfaces short `[AMBIGUOUS PLACEMENT] edits[i] matched N times; placed at
+line L via auto-expand — verify the intended site.` warnings (result text
+  - `details.placementWarnings` + tool-layer `[WARNINGS]` +
+    `guard.placementWarnings`). Fires ONLY when count > 1, never on unique
+    matches. Line numbers only, no content echoed.
+- Fixture: synthetic wild-shape in `tests/wild-diagnostics.test.ts`
+  (P6 block) — the live session held only partial `read` windows, so no
+  full pre-edit snapshot was extractable; the 3-occurrence asymmetric
+  fixture reproduces the mechanism deterministically.
+- Open question: whether auto-expand should fail closed instead of guessing
+  (score against the corpus per §7 before constraining it).
+
+### P7 — deliberate no-op edit used as a placement anchor (same session)
+
+- Shape: `edits[0]` sent with oldText == newText as a placeholder anchor for
+  a second edit's merge site; the pipeline reported `noop (edit did
+nothing)` in a partial apply. This model coped, but the message taught
+  nothing — the next retry could easily be another no-op.
+- Fix (message only): identical-text noops now set `diag.reason` and the
+  validation message to name the `anchor` field (`...use the anchor field
+instead of a no-op edit.`), with no content echoed. Keeps the legacy
+  `identical` / `does nothing` wording so existing matchers still hit.
+
 ### Self-documenting failures (2026-08-25+)
 
 Not-found / anchor-not-found diagnostics now carry dice+jaccard against the

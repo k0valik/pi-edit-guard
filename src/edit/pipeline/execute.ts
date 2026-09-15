@@ -69,6 +69,38 @@ function buildSemanticWarnings(applied: AppliedEdit[], content: string): string[
   });
 }
 
+// Helper: warnings for edits auto-expand placed from an ambiguous set.
+// Auto-expand only fires after a confirmed multi-occurrence match, and the
+// single unique winner is still a guess — any site could have been meant
+// (mined 2026-09-14: 3-line test ending matched N tests, landed on the wrong
+// one, model burned turns on test fallout before noticing). Fires ONLY when
+// the confirmed count is > 1, never on unique matches. Short by design: line
+// numbers only, no content echoed (anchors and oldText can be very long).
+export function buildAutoExpandWarnings(diagnostics: EditDiagnostic[]): string[] {
+  const out: string[] = [];
+  for (const d of diagnostics ?? []) {
+    if (d.status !== "applied" || d.match?.passName !== "auto_expand") continue;
+    const count = d.ambiguousMatchCount ?? 0;
+    if (count < 2) continue;
+    const range = d.lineRange
+      ? d.lineRange.start === d.lineRange.end
+        ? "line " + d.lineRange.start
+        : "lines " + d.lineRange.start + "-" + d.lineRange.end
+      : "an ambiguous site";
+    out.push(
+      "[AMBIGUOUS PLACEMENT] edits[" +
+        d.index +
+        "] matched " +
+        count +
+        " times; " +
+        "placed at " +
+        range +
+        " via auto-expand — verify the intended site.",
+    );
+  }
+  return out;
+}
+
 // Helper: warnings for edits that cross a confusable-glyph gap.
 // Models demonstrably mix up lookalike codepoints NFKC does NOT fold
 // (mined 2026-09-09: U+EE9C PUA ↔ U+2E9C CJK radical ↔ U+2301 electric
@@ -436,6 +468,7 @@ export async function executeFile(
       const corruptionWarnings = detectDuplicatedBlocks(newContentRaw, result.applied);
       const semanticWarnings = buildSemanticWarnings(result.applied, normContent);
       const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
+      const placementWarnings = buildAutoExpandWarnings(diagnostics);
 
       const dir = resolvedPath.split(/[\\/]/).slice(0, -1).join("/") || ".";
       try {
@@ -529,6 +562,9 @@ export async function executeFile(
       if (confusableWarnings.length > 0) {
         message += "\n" + confusableWarnings.join("\n");
       }
+      if (placementWarnings.length > 0) {
+        message += "\n" + placementWarnings.join("\n");
+      }
 
       return {
         content: [{ type: "text", text: message }],
@@ -559,6 +595,7 @@ export async function executeFile(
           postWriteWarnings,
           semanticWarnings,
           confusableWarnings,
+          placementWarnings,
           diagnostics,
           appliedEdits: result.applied,
           failedEdits: result.failed,
@@ -575,6 +612,7 @@ export async function executeFile(
     const corruptionWarnings = detectDuplicatedBlocks(newContentRaw, result.applied);
     const semanticWarnings = buildSemanticWarnings(result.applied, normContent);
     const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
+    const placementWarnings = buildAutoExpandWarnings(outcome.diagnostics ?? []);
 
     // 6. Atomic write: temp file + rename in the same directory
     const dir = resolvedPath.split(/[\\/]/).slice(0, -1).join("/") || ".";
@@ -661,6 +699,7 @@ export async function executeFile(
       ...corruptionWarnings,
       ...postWriteWarnings,
       ...confusableWarnings,
+      ...placementWarnings,
     ];
     const text = allWarnings.length > 0 ? `${successText}\n${allWarnings.join("\n")}` : successText;
 
@@ -695,6 +734,7 @@ export async function executeFile(
         postWriteWarnings,
         semanticWarnings,
         confusableWarnings,
+        placementWarnings,
         diagnostics: outcome.diagnostics?.filter((d) => d.status === "applied"),
       },
     };

@@ -205,11 +205,12 @@ function doResolvePass(content: string, blocks: ParsedBlock[], path: string): Re
     }
     if (normalizeNewlines(block.oldText) === normalizeNewlines(block.newText)) {
       diag.status = "noop";
+      diag.reason =
+        "oldText and newText are identical; this edit does nothing. " +
+        "If this was meant as a placement anchor, use the anchor field instead of a no-op edit.";
       diagnostics.push(diag);
       errors.push({
-        ...validationError(
-          `edits[${i}]: oldText and newText are identical; this edit does nothing.`,
-        ),
+        ...validationError("edits[" + i + "]: " + diag.reason),
         index: i,
       });
       continue;
@@ -562,7 +563,7 @@ function doResolvePass(content: string, blocks: ParsedBlock[], path: string): Re
     if (report.ambiguous) {
       const expanded = tryAutoExpand(searchContent, block, path, match.actual, baseOffset, i);
       if (expanded) {
-        resolved.push(expanded);
+        resolved.push(expanded.resolved);
         telemetry.record({
           type: "match.pass",
           timestamp: Date.now(),
@@ -571,11 +572,16 @@ function doResolvePass(content: string, blocks: ParsedBlock[], path: string): Re
           anchorUsed,
         });
         diag.match = {
-          start: expanded.start,
-          end: expanded.end,
-          passName: expanded.match.passName,
+          start: expanded.resolved.start,
+          end: expanded.resolved.end,
+          passName: expanded.resolved.match.passName,
           anchorUsed,
         };
+        diag.lineRange = {
+          start: lineAtOffset(lineOffsets, expanded.resolved.start),
+          end: lineAtOffset(lineOffsets, expanded.resolved.end - 1),
+        };
+        diag.ambiguousMatchCount = expanded.count;
         diagnostics.push(diag);
         continue;
       }
@@ -686,6 +692,8 @@ export function buildPassSplices(applied: AppliedEdit[]): RawSplice[] {
 // every occurrence until exactly ONE is unique. The replacement applies to the
 // ORIGINAL span — expansion only locates. Multiple simultaneously-unique
 // occurrences are genuinely indistinguishable → ambiguous error.
+// A single unique winner is still a guess (any site could have been meant) —
+// the caller records the confirmed count so the tool layer can warn.
 // ---------------------------------------------------------------------------
 
 function tryAutoExpand(
@@ -695,7 +703,7 @@ function tryAutoExpand(
   actual: string,
   baseOffset = 0,
   blockIndex?: number,
-): ResolvedEdit | null {
+): { resolved: ResolvedEdit; count: number } | null {
   const spans = findAllSpans(content, actual);
   if (spans.length < 2) return null;
 
@@ -729,12 +737,19 @@ function tryAutoExpand(
     const uniqueIdx = findSingleUnique(expandedBlocks, content);
     if (uniqueIdx !== null) {
       const span = spans[uniqueIdx];
+      // count = confirmed occurrences in the searched scope. The caller
+      // surfaces it in the placement warning so the model sees the guess
+      // was drawn from N identical sites (mined 2026-09-14: a 3-line test
+      // ending matched N tests; auto-expand silently picked the wrong one).
       return {
-        edit: { path, oldText: block.oldText, newText: block.newText },
-        match: { actual, passName: "auto_expand" } satisfies MatchResult,
-        start: span.start + baseOffset,
-        end: span.end + baseOffset,
-        blockIndex,
+        resolved: {
+          edit: { path, oldText: block.oldText, newText: block.newText },
+          match: { actual, passName: "auto_expand" } satisfies MatchResult,
+          start: span.start + baseOffset,
+          end: span.end + baseOffset,
+          blockIndex,
+        },
+        count: spans.length,
       };
     }
     // If MULTIPLE candidates are already unique, further expansion keeps them
