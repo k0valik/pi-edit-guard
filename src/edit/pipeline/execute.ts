@@ -29,10 +29,12 @@
  */
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -229,6 +231,10 @@ export interface ExecuteFileOptions {
   exists?: (p: string) => boolean;
   mkdir?: (p: string, opts?: { recursive: boolean }) => void;
   unlink?: (p: string) => void;
+  /** Stat for capturing the original file mode (tmp+rename preservation). Defaults to statSync. */
+  stat?: (p: string) => { mode: number };
+  /** Chmod for restoring the original mode on the tmp file before rename. Defaults to chmodSync. */
+  chmod?: (p: string, mode: number) => void;
   /** Stale-read registry refresh. Called with the raw user path (the key the hook checks). */
   selfRefresh?: (p: string) => void;
   /** pi withFileMutationQueue passthrough (keyed on the resolved path). */
@@ -242,6 +248,29 @@ export interface ExecuteFileResult {
   isError: boolean;
   details: Record<string, unknown>;
   diagnostics?: EditDiagnostic[];
+}
+
+// Helper: restore the original file mode on the tmp file before rename.
+// Atomic tmp+rename writes replace the original inode, so without this the
+// edited file inherits umask-derived permissions and loses the executable
+// bit (mined 2026-09-15: 755 -> 664). Best-effort: a chmod failure warns
+// rather than failing an otherwise good edit.
+function preserveMode(
+  chmod: (p: string, mode: number) => void,
+  tmpPath: string,
+  mode: number | undefined,
+  postWriteWarnings: string[],
+): void {
+  if (mode === undefined) return;
+  try {
+    chmod(tmpPath, mode);
+  } catch {
+    postWriteWarnings.push(
+      "[MODE PRESERVATION] Could not restore the original file mode (" +
+        mode.toString(8) +
+        ") — the edited file may have lost its executable bit; restore with chmod if needed.",
+    );
+  }
 }
 
 /**
@@ -267,6 +296,8 @@ export async function executeFile(
   const exists = opts.exists ?? existsSync;
   const mkdir = opts.mkdir ?? mkdirSync;
   const unlink = opts.unlink ?? unlinkSync;
+  const stat = opts.stat ?? statSync;
+  const chmod = opts.chmod ?? chmodSync;
 
   const resolvedPath = resolveToCwd(path, opts.cwd ?? process.cwd());
   const startedAt = performance.now();
@@ -292,6 +323,17 @@ export async function executeFile(
         isError: true,
         details: { error: "file-not-found", path },
       };
+    }
+
+    // Capture the original permission bits so the tmp+rename write paths
+    // below can restore them (rename replaces the inode, and the tmp file
+    // otherwise inherits umask-derived permissions). Best-effort: stat also
+    // fails for injected mock filesystems, leaving the mode undefined.
+    let originalMode: number | undefined;
+    try {
+      originalMode = stat(resolvedPath).mode & 0o7777;
+    } catch {
+      originalMode = undefined;
     }
 
     const rawContent = rawBuffer.toString(encoding);
@@ -482,6 +524,7 @@ export async function executeFile(
       try {
         const outputBuffer = Buffer.from(newContent, encoding);
         writeFile(tmpPath, outputBuffer);
+        preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
         rename(tmpPath, resolvedPath);
 
         // Best-effort post-write re-read verification (see the full-apply
@@ -627,6 +670,7 @@ export async function executeFile(
     try {
       const outputBuffer = Buffer.from(newContent, encoding);
       writeFile(tmpPath, outputBuffer);
+      preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
       rename(tmpPath, resolvedPath);
 
       // Best-effort post-write re-read verification. Surfaces a warning if
