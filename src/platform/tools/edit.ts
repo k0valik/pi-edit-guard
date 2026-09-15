@@ -112,6 +112,10 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
       "For renames where the same text appears in multiple places, set replaceAll: true to replace every occurrence in the file.",
     ],
     parameters: EDIT_SCHEMA,
+    // Native parity: the built-in edit renders its own framing ("self").
+    // withBuiltInRenderers backfills renderCall/renderResult but NOT the
+    // shell, so omitting this silently downgrades TUI framing to "default".
+    renderShell: "self",
     prepareArguments: (args) => prepareEditArguments(args) as Static<typeof EDIT_SCHEMA>,
     async execute(
       toolCallId: string,
