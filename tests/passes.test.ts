@@ -4,6 +4,7 @@ import {
   blockAnchorFind,
   lineTrimmedFind,
   oneSubstitution,
+  unicodeNormalizedFind,
   verifiedLineSim,
   REPLACER_CHAIN,
 } from "../src/edit/matching/passes.js";
@@ -337,5 +338,33 @@ describe("blockAnchorFind — threshold boundaries", () => {
     const result = blockAnchorFind(original, oldContent);
     expect(result).not.toBeNull();
     expect(result).toBe("A\n  abc  \nB");
+  });
+});
+
+describe("unicodeNormalizedFind — pi dash-set parity", () => {
+  // pi's normalizeForFuzzyMatch maps U+2010/2011/2012/2013/2014/2015/2212 to
+  // ASCII hyphen; the query side uses the plain hyphen. `actual` must stay
+  // verbatim file text (original glyph preserved).
+  const dashCases: Array<[string, string]> = [
+    ["\u2010", "hyphen"],
+    ["\u2011", "non-breaking hyphen"],
+    ["\u2012", "figure dash"],
+    ["\u2013", "en dash"],
+    ["\u2014", "em dash"],
+    ["\u2015", "horizontal bar"],
+    ["\u2212", "minus sign"],
+  ];
+  for (const [glyph, name] of dashCases) {
+    it(`matches ${name} (U+${glyph.codePointAt(0)!.toString(16).toUpperCase()}) against hyphen`, () => {
+      const original = `a ${glyph} b\n`;
+      const actual = unicodeNormalizedFind(original, "a - b");
+      expect(actual, name).toBe(original.trimEnd());
+    });
+  }
+
+  it("lands on unicode_normalized through the full chain", () => {
+    const hit = findMatch("x \u2212 1\n", "x - 1");
+    expect(hit?.passName).toBe("unicode_normalized");
+    expect(hit?.actual).toBe("x \u2212 1");
   });
 });

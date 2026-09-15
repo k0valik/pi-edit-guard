@@ -455,6 +455,9 @@ export function contextAwareFind(original: string, oldContent: string): string |
 // transform, so it runs in tier 3 before the anchored-fuzzy tier.
 
 const PUNCT_MAP: Record<string, string> = {
+  "\u2010": "-", // ‐ hyphen (pi normalizeForFuzzyMatch parity)
+  "\u2011": "-", // ‑ non-breaking hyphen
+  "\u2012": "-", // ‒ figure dash
   "\u2018": "'", // ‘ left single quote
   "\u2019": "'", // ’ right single quote
   "\u201A": "'", // ‚ single low-9 quote
@@ -465,13 +468,15 @@ const PUNCT_MAP: Record<string, string> = {
   "\u201F": '"', // ‟ double high-reversed-9 quote
   "\u2013": "-", // – en dash
   "\u2014": "-", // — em dash
+  "\u2015": "-", // ― horizontal bar
+  "\u2212": "-", // − minus sign (LLMs emit this for `-` constantly)
 };
 
 function normalizeText(s: string): string {
   return s
     .normalize("NFKC")
     .replace(
-      /[\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2013\u2014]/g,
+      /[\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g,
       (c) => PUNCT_MAP[c] ?? c,
     );
 }
