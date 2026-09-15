@@ -31,8 +31,10 @@
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -235,6 +237,10 @@ export interface ExecuteFileOptions {
   stat?: (p: string) => { mode: number };
   /** Chmod for restoring the original mode on the tmp file before rename. Defaults to chmodSync. */
   chmod?: (p: string, mode: number) => void;
+  /** Lstat for detecting symlinks (rename must target the link target). Defaults to lstatSync. */
+  lstat?: (p: string) => { isSymbolicLink(): boolean };
+  /** Realpath for resolving symlink targets for the write path. Defaults to realpathSync. */
+  realpath?: (p: string) => string;
   /** Stale-read registry refresh. Called with the raw user path (the key the hook checks). */
   selfRefresh?: (p: string) => void;
   /** pi withFileMutationQueue passthrough (keyed on the resolved path). */
@@ -298,6 +304,8 @@ export async function executeFile(
   const unlink = opts.unlink ?? unlinkSync;
   const stat = opts.stat ?? statSync;
   const chmod = opts.chmod ?? chmodSync;
+  const lstat = opts.lstat ?? lstatSync;
+  const realpath = opts.realpath ?? realpathSync;
 
   const resolvedPath = resolveToCwd(path, opts.cwd ?? process.cwd());
   const startedAt = performance.now();
@@ -334,6 +342,22 @@ export async function executeFile(
       originalMode = stat(resolvedPath).mode & 0o7777;
     } catch {
       originalMode = undefined;
+    }
+
+    // Symlink parity: native fsWriteFile writes THROUGH symlinks, preserving
+    // the link. tmp+rename over the link path would REPLACE the symlink with
+    // a regular file (target keeps stale content, link destroyed). Reads and
+    // stat already follow links, so only the write side needs the target.
+    // Best-effort like the mode capture: mocked filesystems throw, and a
+    // broken link already failed the read above — fall back to the link path
+    // and let the write surface the real error.
+    let writePath = resolvedPath;
+    try {
+      if (lstat(resolvedPath).isSymbolicLink()) {
+        writePath = realpath(resolvedPath);
+      }
+    } catch {
+      writePath = resolvedPath;
     }
 
     const rawContent = rawBuffer.toString(encoding);
@@ -512,7 +536,7 @@ export async function executeFile(
       const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
       const placementWarnings = buildAutoExpandWarnings(diagnostics);
 
-      const dir = resolvedPath.split(/[\\/]/).slice(0, -1).join("/") || ".";
+      const dir = writePath.split(/[\\/]/).slice(0, -1).join("/") || ".";
       try {
         if (!exists(dir)) mkdir(dir, { recursive: true });
       } catch {
@@ -525,7 +549,7 @@ export async function executeFile(
         const outputBuffer = Buffer.from(newContent, encoding);
         writeFile(tmpPath, outputBuffer);
         preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
-        rename(tmpPath, resolvedPath);
+        rename(tmpPath, writePath);
 
         // Best-effort post-write re-read verification (see the full-apply
         // path): runs unconditionally, never blocks the result.
@@ -658,7 +682,7 @@ export async function executeFile(
     const placementWarnings = buildAutoExpandWarnings(outcome.diagnostics ?? []);
 
     // 6. Atomic write: temp file + rename in the same directory
-    const dir = resolvedPath.split(/[\\/]/).slice(0, -1).join("/") || ".";
+    const dir = writePath.split(/[\\/]/).slice(0, -1).join("/") || ".";
     try {
       if (!exists(dir)) mkdir(dir, { recursive: true });
     } catch {
@@ -671,7 +695,7 @@ export async function executeFile(
       const outputBuffer = Buffer.from(newContent, encoding);
       writeFile(tmpPath, outputBuffer);
       preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
-      rename(tmpPath, resolvedPath);
+      rename(tmpPath, writePath);
 
       // Best-effort post-write re-read verification. Surfaces a warning if
       // on-disk bytes differ from expected output. Runs unconditionally —

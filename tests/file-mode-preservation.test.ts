@@ -13,7 +13,16 @@
 // Tests therefore assert before==after everywhere and gate exact-bit
 // assertions on POSIX.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { writeFileSync, readFileSync, rmSync, mkdtempSync, statSync, chmodSync } from "node:fs";
+import {
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  mkdtempSync,
+  statSync,
+  chmodSync,
+  symlinkSync,
+  lstatSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeFile } from "../src/edit/pipeline/execute.js";
@@ -111,5 +120,80 @@ describe("file mode preservation", () => {
     expect(result.isError).toBe(false);
     expect(String(files["/tmp/mode-warn.txt"])).toContain("bye");
     expect(result.content[0]?.text).toContain("[MODE PRESERVATION]");
+  });
+});
+
+// Symlink parity: native fsWriteFile writes THROUGH symlinks, preserving the
+// link. tmp+rename over the link path would replace the symlink with a
+// regular file. Gated on POSIX — Windows symlink creation needs privileges
+// and link semantics differ there.
+describe.skipIf(!POSIX)("symlink preservation", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "symlink-preservation-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const EDIT = { oldText: "printf 'before\\n'", newText: "printf 'after\\n'" };
+
+  function writeTarget(): { target: string; link: string } {
+    const target = join(dir, "real.sh");
+    writeFileSync(target, "#!/usr/bin/env bash\nprintf 'before\\n'\n");
+    chmodSync(target, 0o755);
+    const link = join(dir, "link.sh");
+    symlinkSync(target, link);
+    return { target, link };
+  }
+
+  it("full apply through a symlink preserves the link", async () => {
+    const { target, link } = writeTarget();
+
+    const result = await executeFile(link, [EDIT]);
+
+    expect(result.isError).toBe(false);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, "utf-8")).toContain("printf 'after\\n'");
+    expect(readFileSync(link, "utf-8")).toContain("printf 'after\\n'");
+    expect(modeOf(target) & 0o111).toBe(0o111);
+  });
+
+  it("partial apply through a symlink preserves the link", async () => {
+    const { target, link } = writeTarget();
+
+    const result = await executeFile(link, [EDIT, { oldText: "missing", newText: "MISSING" }]);
+
+    expect(result.isError).toBe(false);
+    expect((result.details as { isPartial?: boolean }).isPartial).toBe(true);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, "utf-8")).toContain("printf 'after\\n'");
+  });
+
+  it("mocked fs: rename targets the link target, not the link", async () => {
+    const files: Record<string, Buffer> = { "/real/target.txt": Buffer.from("hello\n") };
+    let renamedTo = "";
+    const result = await executeFile("/link/to.txt", [{ oldText: "hello", newText: "bye" }], {
+      // Reads follow the link natively, so serve the link path too.
+      readFile: (p) => files[p] ?? files["/real/target.txt"]!,
+      writeFile: (p, data) => {
+        files[p] = Buffer.from(data as string | Uint8Array);
+      },
+      rename: (from, to) => {
+        renamedTo = to;
+        files[to] = files[from]!;
+      },
+      exists: () => true,
+      stat: () => ({ mode: 0o100644 }),
+      chmod: () => {},
+      lstat: () => ({ isSymbolicLink: () => true }),
+      realpath: () => "/real/target.txt",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(renamedTo).toBe("/real/target.txt");
+    expect(String(files["/real/target.txt"])).toContain("bye");
   });
 });
