@@ -1,6 +1,7 @@
 /**
  * Resolution phase — per-file orchestration: anchor window → findMatch
- * (chain.ts) → disproportionate guard → uniqueness (reportOccurrences) →
+ * (chain.ts) → window-shadow guard (stronger full-file retry) →
+ * disproportionate guard → uniqueness (reportOccurrences) →
  * auto-expand → closest-candidate (on failure) → diagnostics.
  *
  * Historical shape note — why two layers, not one incremental loop:
@@ -19,7 +20,7 @@
 
 import { applyEdits } from "./apply.js";
 import { findClosestCandidate } from "../matching/closest.js";
-import { findMatch } from "../matching/chain.js";
+import { findMatch, findMatchStrongerThan } from "../matching/chain.js";
 import {
   alreadyAppliedError,
   ambiguousError,
@@ -376,7 +377,35 @@ function doResolvePass(content: string, blocks: ParsedBlock[], path: string): Re
       }
     }
 
-    const match = findMatch(searchContent, block.oldText);
+    let match = findMatch(searchContent, block.oldText);
+    if (match && anchorUsed && !block.replaceAll) {
+      // Shadow guard (issue #2): the windowed search runs the FULL chain,
+      // so a weak in-window hit (e.g. token_overlap) can shadow a unique
+      // stronger full-file match (e.g. verbatim simple) sitting outside the
+      // ±10-line window. Before accepting the window hit, retry strictly
+      // stronger passes against the whole file; a unique stronger hit wins.
+      // Ambiguous full-file hits keep the window hit — the anchor exists to
+      // disambiguate repeats, and guessing between them would be wrong.
+      const stronger = findMatchStrongerThan(content, block.oldText, match.passName);
+      if (stronger) {
+        const fullReport = reportOccurrences(content, stronger.actual);
+        if (!fullReport.ambiguous && !isDisproportionateMatch(stronger.actual, block.oldText)) {
+          match = stronger;
+          searchContent = content;
+          baseOffset = 0;
+          winStartLine = 1;
+          diag.anchorFallback = true;
+          diag.anchorWindowOverflow = true;
+          telemetry.record({
+            type: "match.pass",
+            timestamp: Date.now(),
+            passName: "anchor_window_shadowed_full_retry",
+            autoExpand: false,
+            anchorUsed: true,
+          });
+        }
+      }
+    }
     if (!match && anchorUsed) {
       // Windowed search failed but an anchor scoped it. Mined from live
       // sessions (2026-08): models use anchors as IDENTIFICATION, not

@@ -36,6 +36,34 @@ export function findMatch(
 }
 
 /**
+ * Run only the passes STRICTLY STRONGER than (earlier in REPLACER_CHAIN
+ * than) `weakerPassName` against the full content.
+ *
+ * Used by the anchor-window shadow guard (pipeline/resolve.ts): a weak
+ * window hit (e.g. token_overlap) must not shadow a unique stronger
+ * full-file match (e.g. verbatim simple). Returns the first stronger hit
+ * or null when none fires. Unknown pass names yield null (no override).
+ */
+export function findMatchStrongerThan(
+  original: string,
+  oldContent: string,
+  weakerPassName: string,
+): MatchResult | null {
+  const cutoff = REPLACER_CHAIN.findIndex(({ name }) => name === weakerPassName);
+  if (cutoff <= 0) return null;
+  const orig = normalizeNewlines(original);
+  const old = normalizeNewlines(oldContent);
+
+  for (const { name, find } of REPLACER_CHAIN.slice(0, cutoff)) {
+    const actual = find(orig, old);
+    if (actual !== null) {
+      return { actual, passName: name };
+    }
+  }
+  return null;
+}
+
+/**
  * 1-indexed line numbers of every occurrence of `needle` in `haystack`.
  * Uses character-offset splitting so empty lines and mixed endings are counted correctly.
  */
