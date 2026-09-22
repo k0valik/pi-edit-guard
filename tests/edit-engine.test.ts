@@ -1152,15 +1152,19 @@ describe("detectDuplicatedBlocks — false-positive regression", () => {
     });
 
     it("still warns when the duplicate prefix is after the first 20% of newText", async () => {
-      // Use a prefix above the 20-char minPrefixLen threshold.
+      // Header above the 24-char prefix-echo threshold, sent as whole
+      // lines: a multi-line prefix query (header cut mid-line) is no longer
+      // a valid match — since the graft law, multi-line verbatim matches
+      // must be line-aligned. The warning logic under test only inspects
+      // match.actual + newText, so the search shape is incidental.
       const original = "function foo() {\n  return 1;\n}\n";
-      const prefix = "function foo() {\n  return"; // 25 chars
-      // newText >= 120 chars to pass the short-replacement guard.
-      // Put the duplicate prefix at position ~76% — should warn.
-      const newText = prefix + "x".repeat(60) + prefix + "y".repeat(30);
-      expect(newText.length).toBeGreaterThanOrEqual(120);
+      const header = "function foo() {\n  return 1;"; // 28 chars, line-aligned
+      // newText >= 3x actual to pass the expansion guard.
+      // Put the duplicate header at position ~76% — should warn.
+      const newText = header + "x".repeat(60) + header + "y".repeat(30);
+      expect(newText.length).toBeGreaterThanOrEqual(header.length * 3);
       const file = join(sandbox, "prefix-late-duplicate.txt");
-      const result = await executeFile(file, [{ oldText: prefix, newText }], {
+      const result = await executeFile(file, [{ oldText: header, newText }], {
         readFile: () => Buffer.from(original),
         writeFile,
       });

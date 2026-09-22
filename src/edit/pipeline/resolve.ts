@@ -196,6 +196,40 @@ function doResolvePass(content: string, blocks: ParsedBlock[], path: string): Re
     };
 
     if (block.oldText.length === 0) {
+      // Seeding a genuinely empty file: empty search text against zero
+      // bytes is an unambiguous insert at offset 0 — the only empty-oldText
+      // edit with no bytes to destroy (benchmark empty-file: the agent sends
+      // oldText "" with the first content, which must apply). Any other
+      // empty-oldText edit keeps the validation error: without a match the
+      // placement is unknowable.
+      if (content.length === 0 && block.newText.length > 0) {
+        resolved.push({
+          edit: { path, oldText: block.oldText, newText: block.newText },
+          match: { actual: "", passName: "empty_file_insert" },
+          start: 0,
+          end: 0,
+          blockIndex: i,
+        });
+        telemetry.record({
+          type: "match.pass",
+          timestamp: Date.now(),
+          passName: "empty_file_insert",
+          autoExpand: false,
+          anchorUsed: false,
+        });
+        diag.match = {
+          start: 0,
+          end: 0,
+          passName: "empty_file_insert",
+          anchorUsed: false,
+        };
+        diag.lineRange = {
+          start: lineAtOffset(lineOffsets, 0),
+          end: lineAtOffset(lineOffsets, 0),
+        };
+        diagnostics.push(diag);
+        continue;
+      }
       diag.status = "validation";
       diagnostics.push(diag);
       errors.push({

@@ -24,7 +24,42 @@ export function simpleFind(original: string, oldContent: string): string | null 
   // `includes("")` is always true, so an empty query would report a
   // zero-length match (and an empty `actual` is never a valid edit).
   if (oldContent.length === 0) return null;
-  return original.includes(oldContent) ? oldContent : null;
+  if (!oldContent.includes("\n")) {
+    return original.includes(oldContent) ? oldContent : null;
+  }
+  // Multi-line queries must match line-aligned: a match that starts or ends
+  // mid-line is a partial overlay onto longer drifted lines (benchmark
+  // b9-boundary-changed: `aaa\nbbb` grafted onto `aaa\nbbb-x` to make
+  // `aaa\nBBB-x`, silently destroying the external `-x` change). Every
+  // other pass in the chain is line-aligned by construction (they operate
+  // on whole-line spans); raw `includes` was the only graft vector.
+  // Single-line queries keep substring semantics — sub-line-token and
+  // replace-all models legitimately send token-only search text.
+  return findLineAligned(original, oldContent) ? oldContent : null;
+}
+
+/**
+ * True when `needle` occurs at least once covering whole lines: the match
+ * starts at a line start and ends at a line end (or file edge).
+ * LF-normalized inputs only (the chain normalizes before dispatch).
+ */
+function isLineAligned(original: string, index: number, length: number): boolean {
+  const startsAtBoundary = index === 0 || original[index - 1] === "\n";
+  const end = index + length;
+  const endsAtBoundary = end >= original.length || original[end] === "\n";
+  return startsAtBoundary && endsAtBoundary;
+}
+
+/** Any occurrence of `needle` in `original` that covers whole lines. */
+function findLineAligned(original: string, needle: string): boolean {
+  let from = 0;
+  while (from <= original.length) {
+    const idx = original.indexOf(needle, from);
+    if (idx === -1) return false;
+    if (isLineAligned(original, idx, needle.length)) return true;
+    from = idx + 1;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -363,12 +398,14 @@ function unescape(s: string): string {
 export function escapeNormalizedFind(original: string, oldContent: string): string | null {
   const unescaped = unescape(oldContent);
   if (unescaped === oldContent) return null;
+  // Same line-alignment law as simpleFind for multi-line matches.
+  if (unescaped.includes("\n")) return findLineAligned(original, unescaped) ? unescaped : null;
   return original.includes(unescaped) ? unescaped : null;
 }
 
 // ---------------------------------------------------------------------------
 // Tier 5 (loose legacy scans): TrimmedBoundary — trim the whole block, then
-// fall back to first/last-line contains-anchors. Low-precision last resort
+// fall back to first/last-line equality-anchors. Low-precision last resort
 // before reinforcement passes.
 // ---------------------------------------------------------------------------
 
@@ -379,9 +416,21 @@ export function trimmedBoundaryFind(original: string, oldContent: string): strin
   if (trimmed.length === 0) return null;
   if (trimmed === oldContent) return null;
 
-  if (original.includes(trimmed)) return trimmed;
+  if (original.includes(trimmed)) {
+    // Same line-alignment law as simpleFind: a multi-line verbatim match
+    // that starts/ends mid-line grafts onto drifted lines instead of
+    // locating them. Single-line queries keep substring semantics.
+    if (!trimmed.includes("\n")) return trimmed;
+    if (findLineAligned(original, trimmed)) return trimmed;
+  }
 
-  // Line-level expansion: first/last content lines as contains-anchors.
+  // Line-level expansion: first/last content lines as equality-anchors.
+  // These used to be `includes` (substring) anchors: a drifted boundary
+  // line still "contained" the stale query line, so the pass returned a
+  // span covering drifted bytes and the splice silently overwrote external
+  // changes (benchmark b10-duplicate-drift: `return 2;` anchored onto
+  // `return 2; // drifted`, deleting the comment). Anchors must equal the
+  // boundary lines after trim — interior fuzz stays context_aware's job.
   const oldLines = oldContent.split("\n");
   const firstContent = oldLines[0].trim();
   const lastContent = oldLines[oldLines.length - 1].trim();
@@ -390,11 +439,11 @@ export function trimmedBoundaryFind(original: string, oldContent: string): strin
 
   const originalLines = original.split("\n");
   for (let i = 0; i < originalLines.length; i++) {
-    if (!originalLines[i].includes(firstContent)) continue;
+    if (originalLines[i].trim() !== firstContent) continue;
     const end = Math.min(i + oldLines.length + 2, originalLines.length);
     for (let j = i + 1; j < end; j++) {
       if (j >= originalLines.length) break;
-      if (!originalLines[j].includes(lastContent)) continue;
+      if (originalLines[j].trim() !== lastContent) continue;
       const candidate = originalLines.slice(i, j + 1).join("\n");
       if (original.includes(candidate)) return candidate;
     }
@@ -404,7 +453,7 @@ export function trimmedBoundaryFind(original: string, oldContent: string): strin
 
 // ---------------------------------------------------------------------------
 // Tier 5 (loose legacy scans): ContextAware — first/last non-empty lines as
-// contains-anchors (LCS similarity > 0.5). Low-precision last resort.
+// equality-anchors, interior scored by LCS similarity > 0.5.
 // ---------------------------------------------------------------------------
 
 export function contextAwareFind(original: string, oldContent: string): string | null {
@@ -420,9 +469,13 @@ export function contextAwareFind(original: string, oldContent: string): string |
 
   const originalLines = original.split("\n");
 
+  // Equality (after trim), not substring: a drifted boundary line must not
+  // anchor the window onto bytes the query never described (benchmark
+  // insert-race-stale-boundary: `bbb` anchored onto `bbb-x`, deleting `-x`).
+  // Interior fuzz (similarity gate below) is this pass's remaining niche.
   const starts: number[] = [];
   originalLines.forEach((l, i) => {
-    if (l.trim().includes(firstCtx)) starts.push(i);
+    if (l.trim() === firstCtx) starts.push(i);
   });
 
   if (starts.length === 0) return null;
@@ -433,7 +486,7 @@ export function contextAwareFind(original: string, oldContent: string): string |
   for (const start of starts) {
     const searchEnd = Math.min(start + oldLines.length * 2, originalLines.length);
     for (let end = start + 1; end < searchEnd; end++) {
-      if (originalLines[end].trim().includes(lastCtx)) {
+      if (originalLines[end].trim() === lastCtx) {
         const candidate = originalLines.slice(start, end + 1).join("\n");
         // Bound prune: sim <= 2*min/(lenA+lenB); if even that cannot exceed
         // the strict 0.5 gate, the DP result cannot either — skip without
