@@ -94,9 +94,10 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
     };
     if (!input.path) return;
 
-    // Forward the edit's search texts: when they ALL still match the current
-    // content verbatim, the splice is provably applicable and staleness of
-    // unrelated regions must not hard-block (mined 2026-08-18, commit.md).
+    // Forward the edit's search texts: when they ALL still resolve in the
+    // current content (verbatim, or whitespace-tolerant through Tier 1-3),
+    // the splice lands deterministically and staleness of unrelated regions
+    // must not hard-block (mined 2026-08-18, commit.md).
     const oldTexts = Array.isArray(input.edits)
       ? input.edits
           .map((e) => (typeof e?.oldText === "string" ? e.oldText : ""))

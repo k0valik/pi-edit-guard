@@ -1,4 +1,10 @@
 import { REPLACER_CHAIN } from "./passes.js";
+import {
+  indentationFlexibleFind,
+  lineTrimmedFind,
+  simpleFind,
+  whitespaceNormalizedFind,
+} from "./passes.js";
 import type { MatchResult } from "../model.js";
 import { normalizeNewlines } from "../text.js";
 
@@ -35,6 +41,36 @@ export function findMatch(
     }
   }
   return null;
+}
+
+/**
+ * Whitespace-only-tolerant resolution — Tier 1-3 passes that change nothing
+ * but whitespace between query and match:
+ *   - simple (verbatim, line-aligned for multi-line since the graft law)
+ *   - line_trimmed (per-line trim)
+ *   - whitespace_normalized (whitespace-run collapse per line)
+ *   - indentation_flexible (leading-indent + blank-line tolerance)
+ *
+ * Deliberately EXCLUDED: escape_normalized / unicode_normalized (they
+ * tolerate model-side encoding differences, not file drift) and every
+ * fuzzy tier (anchored, legacy, reinforcement, token-multiset — all can
+ * bridge genuine content drift).
+ *
+ * Consumed by the stale-read guard: when every search text resolves here
+ * against current bytes, drift is provably whitespace-only and the edit
+ * proceeds with an advisory instead of a hard block. A match here means
+ * the splice lands deterministically — the drift cannot redirect it.
+ */
+export function isWhitespaceTolerantMatch(original: string, oldContent: string): boolean {
+  if (oldContent.length === 0) return false;
+  const orig = normalizeNewlines(original);
+  const old = normalizeNewlines(oldContent);
+  const finds = [simpleFind, lineTrimmedFind, whitespaceNormalizedFind, indentationFlexibleFind];
+  for (const find of finds) {
+    const actual = find(orig, old);
+    if (actual !== null && actual.length > 0) return true;
+  }
+  return false;
 }
 
 /**

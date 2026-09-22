@@ -274,3 +274,98 @@ describe("getStaleWarning verbatim gating", () => {
     expect(registry.getStaleWarning(p, ["line nine"])).toBeNull();
   });
 });
+
+describe("ReadRegistry whitespace-tolerant downgrade", () => {
+  // Real-world drift is usually a formatter (oxfmt/prettier reindent or
+  // respace between read and edit — mined 2026-09-22, blackhole-dev
+  // session: oxfmt reflowed a doc between the agent's read and edit).
+  // When every oldText still resolves through a whitespace-only-tolerant
+  // pass (Tier 1-3: verbatim, per-line trim, whitespace collapse,
+  // indentation-flexible), the splice lands deterministically onto current
+  // bytes — first contact advises instead of blocking. Content drift
+  // (changed words, added suffixes, rewrapped lines) keeps the hard block:
+  // that is the small-model structural-garbage case the guard exists for.
+  it("downgrades to advisory on formatter reindent", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "function f() {\n  return 1;\n}\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.ts";
+    registry.record(p);
+
+    rewrite("function f() {\n    return 1;\n}\n"); // 2sp -> 4sp, like oxfmt
+    touch(5000);
+    const outcome = registry.assertFresh(p, { oldTexts: ["  return 1;"] });
+    expect(outcome?.kind).toBe("stale-read-warning");
+  });
+
+  it("downgrades on intra-line respace (oxfmt markdown session shape)", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "Read this top to bottom before touching.\nThe first section.\n",
+      now: 1_000,
+    });
+    const p = "/repo/doc.md";
+    registry.record(p);
+
+    rewrite("Read this top to   bottom before touching.\nThe first section.\n");
+    touch(5000);
+    const outcome = registry.assertFresh(p, {
+      oldTexts: ["Read this top to bottom before touching.\nThe first section."],
+    });
+    expect(outcome?.kind).toBe("stale-read-warning");
+  });
+
+  it("keeps the hard block on content drift (multi-line search, drift inside)", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "aaa\nbbb\nccc\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.ts";
+    registry.record(p);
+
+    // Drifted boundary line: neither verbatim nor whitespace-tolerant
+    // resolution applies — the small-model structural-garbage case.
+    // (Single bare tokens like `bbb` keep the lenient verbatim-substring
+    // treatment: content alone cannot tell drift residue from a legitimate
+    // sub-line target, and blocking those is the annoyance this ladder
+    // exists to avoid.)
+    rewrite("aaa\nbbb-external\nccc\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["bbb\nccc"] })?.kind).toBe("stale-read");
+  });
+
+  it("keeps the hard block when drift rewraps lines (word reflow)", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "aaa\nbbb\nccc\n",
+      now: 1_000,
+    });
+    const p = "/repo/doc.md";
+    registry.record(p);
+
+    // Same words, new wrapping: the splice would un-reflow the formatter's
+    // work, so this stays a block-and-reread, not proceed-and-warn.
+    rewrite("aaa bbb\nccc\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["aaa\nbbb\nccc"] })?.kind).toBe("stale-read");
+  });
+
+  it("stays silent in getStaleWarning when whitespace-safe", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "function f() {\n  return 1;\n}\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.ts";
+    registry.record(p);
+
+    rewrite("function f() {\n    return 1;\n}\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["  return 1;"] })?.kind).toBe("stale-read-warning");
+    // Drift cannot affect this edit — nothing to verify beyond the diff.
+    expect(registry.getStaleWarning(p, ["  return 1;"])).toBeNull();
+  });
+});

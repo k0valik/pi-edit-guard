@@ -15,3 +15,7 @@
     single-token grafts remain the stale-read hook's job.
 - `edit`: allow empty `oldText` to seed a genuinely empty file
   (benchmark `empty-file`). Non-empty files keep the validation error.
+- stale-read guard: whitespace-only drift (formatter reindent/respace)
+  downgrades the first-contact block to proceed-with-advisory when every
+  `oldText` still resolves through a whitespace-only-tolerant match
+  (Tier 1-3). Content drift keeps the hard block.

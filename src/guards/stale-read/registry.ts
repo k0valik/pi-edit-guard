@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 
 import type { EditError } from "../../edit/model.js";
 import { staleReadError } from "../../edit/errors.js";
+import { isWhitespaceTolerantMatch } from "../../edit/matching/chain.js";
 
 export interface StatLike {
   mtimeMs: number;
@@ -117,6 +118,11 @@ export class ReadRegistry {
    *   - verbatim-safe edits (every oldText still present in current content,
    *     CRLF-normalized) downgrade to advisory on FIRST contact: the splice
    *     is provably applicable; the result diff covers verification.
+   *   - whitespace-safe edits (every oldText still resolves through a
+   *     whitespace-only-tolerant match — Tier 1-3) downgrade the same way:
+   *     real-world drift is usually a formatter reindent/respace, and the
+   *     splice lands deterministically onto current bytes. Content drift
+   *     (changed words, added suffixes, rewrapped lines) keeps the block.
    *
    * record()/selfRefresh() reset the ladder — a fresh known baseline means
    * the next genuine drift blocks again.
@@ -130,9 +136,11 @@ export class ReadRegistry {
 
     const mtime = this.stat(key).mtimeMs;
     const verbatimSafe = this.isVerbatimSafe(key, opts?.oldTexts);
+    // Cheap check first: the chain walk only runs when verbatim fails.
+    const applicableSafe = verbatimSafe || this.isWhitespaceSafe(key, opts?.oldTexts);
     const sameDrift = this.driftMtime.get(key) === mtime;
 
-    if (!sameDrift && !verbatimSafe) {
+    if (!sameDrift && !applicableSafe) {
       // New drifted state we have not reacted to yet — block once and
       // remember exactly which mtime we reacted to.
       this.warned.add(key);
@@ -175,21 +183,46 @@ export class ReadRegistry {
   }
 
   /**
+   * True when EVERY oldText still resolves against the current file content
+   * through a whitespace-only-tolerant match (see isWhitespaceTolerantMatch:
+   * verbatim, per-line trim, whitespace-run collapse, indentation-flexible).
+   * Without a readFile injection the check cannot run — treated as NOT safe.
+   * Runs only after isVerbatimSafe fails (chain walk costs more than includes).
+   */
+  private isWhitespaceSafe(key: string, oldTexts?: string[]): boolean {
+    if (!oldTexts || oldTexts.length === 0) return false;
+    if (!this.readFile) return false;
+    let content: string;
+    try {
+      content = this.readFile(key);
+    } catch {
+      return false;
+    }
+    return oldTexts.every((t) => {
+      if (typeof t !== "string" || t.length === 0) return false;
+      return isWhitespaceTolerantMatch(content, t);
+    });
+  }
+
+  /**
    * Advisory warning for the edit tool result, without changing state.
    *
-   * Gated on verbatim-safety: when the caller's search texts are ALL still
-   * present in current content, the splice is provably applicable and the
-   * drift is elsewhere (formatter noise — the common case), so there is
-   * nothing to verify beyond the result diff and no advisory surfaces.
+   * Gated on applicability-safety: when the caller's search texts ALL still
+   * resolve in current content (verbatim, or whitespace-tolerant), the splice
+   * lands deterministically and the drift is whitespace-only or elsewhere
+   * (formatter noise — the common case), so there is nothing to verify
+   * beyond the result diff and no advisory surfaces.
    * The warning fires only when drift plausibly affects THIS edit
-   * (a search text is missing, or safety is unknown: no oldTexts / no
-   * readFile injection). The hard block in assertFresh() is untouched.
+   * (a search text is missing or unresolvable, or safety is unknown:
+   * no oldTexts / no readFile injection). The hard block in assertFresh()
+   * is untouched.
    */
   getStaleWarning(path: string, oldTexts?: string[]): string | null {
     const key = this.normalize(path);
     if (this.isFresh(path)) return null;
     if (!this.warned.has(key)) return null;
     if (this.isVerbatimSafe(key, oldTexts)) return null;
+    if (this.isWhitespaceSafe(key, oldTexts)) return null;
     return "[stale-read advisory] The file may have changed since your last read. The edit will proceed, but verify the result.";
   }
 
