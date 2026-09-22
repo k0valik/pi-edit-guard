@@ -28,7 +28,9 @@ export function findMatch(
   for (const { name, find, searchOnly } of REPLACER_CHAIN) {
     if (searchOnly && !allowSearchOnly) continue;
     const actual = find(orig, old);
-    if (actual !== null) {
+    // An empty `actual` is never a valid match (issue #4). Skipping it also
+    // lets later passes get a chance instead of committing to the bug.
+    if (actual !== null && actual.length > 0) {
       return { actual, passName: name };
     }
   }
@@ -56,7 +58,8 @@ export function findMatchStrongerThan(
 
   for (const { name, find } of REPLACER_CHAIN.slice(0, cutoff)) {
     const actual = find(orig, old);
-    if (actual !== null) {
+    // Same empty-match invariant as findMatch (issue #4).
+    if (actual !== null && actual.length > 0) {
       return { actual, passName: name };
     }
   }
@@ -69,6 +72,10 @@ export function findMatchStrongerThan(
  */
 export function findOccurrencePositions(haystack: string, needle: string): number[] {
   const positions: number[] = [];
+  // `indexOf("", pos)` always returns `pos`, so an empty needle never
+  // advances `searchPos` — the loop would push positions forever and OOM
+  // (issue #4). An empty needle has no meaningful occurrence positions.
+  if (needle === "") return positions;
   let searchPos = 0;
   while (searchPos <= haystack.length) {
     const idx = haystack.indexOf(needle, searchPos);

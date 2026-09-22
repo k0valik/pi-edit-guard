@@ -21,6 +21,9 @@ export type PassFind = (original: string, oldContent: string) => string | null;
 // ---------------------------------------------------------------------------
 
 export function simpleFind(original: string, oldContent: string): string | null {
+  // `includes("")` is always true, so an empty query would report a
+  // zero-length match (and an empty `actual` is never a valid edit).
+  if (oldContent.length === 0) return null;
   return original.includes(oldContent) ? oldContent : null;
 }
 
@@ -278,6 +281,10 @@ function wsNormalize(s: string): string {
 
 export function whitespaceNormalizedFind(original: string, oldContent: string): string | null {
   const normOld = wsNormalize(oldContent);
+  // A whitespace-only query normalizes to "" and would match every window
+  // as a zero-length candidate (issue #4: unbounded memory growth). Bail
+  // like line_trimmed does when nothing but whitespace remains.
+  if (normOld.length === 0) return null;
   const originalLines = original.split("\n");
   const oldLineCount = oldContent.split("\n").length;
 
@@ -367,6 +374,9 @@ export function escapeNormalizedFind(original: string, oldContent: string): stri
 
 export function trimmedBoundaryFind(original: string, oldContent: string): string | null {
   const trimmed = oldContent.trim();
+  // All-whitespace query trims to "" — `includes("")` is true for every
+  // file, which would report an empty match (issue #4). Bail instead.
+  if (trimmed.length === 0) return null;
   if (trimmed === oldContent) return null;
 
   if (original.includes(trimmed)) return trimmed;
