@@ -77,6 +77,19 @@ describe("tokenOverlapFind", () => {
     const original = "one\ntwo\nthree";
     expect(tokenOverlapFind(original, "two")).toBeNull(); // too small anyway
   });
+
+  it("fails closed on repetitive files instead of burning minutes in LCS DP", () => {
+    // Mined 2026-09-28 (pool #832/#754): a ~6 KB query against a repetitive
+    // ~18 KB file qualified ~150 windows at ~36 M LCS cells each ≈ 216 s.
+    // Dice-desc ordering plus the DP cell budget must refuse fast.
+    const fileLine = (i: number) => `const v${i} = f(a, b, c) + g(d);`;
+    const original = Array.from({ length: 400 }, (_, i) => fileLine(i)).join("\n");
+    const queryLine = (i: number) => `const w${i} = f(a, b, c) + g(d);`;
+    const query = Array.from({ length: 150 }, (_, i) => queryLine(i)).join("\n");
+    const t = Date.now();
+    expect(tokenOverlapFind(original, query)).toBeNull();
+    expect(Date.now() - t).toBeLessThan(30_000);
+  });
 });
 
 import { executeFile } from "../src/edit/pipeline/execute.js";

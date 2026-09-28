@@ -754,6 +754,18 @@ export const TOKEN_DICE_MIN = 0.65;
 export const TOKEN_LEV_FLOOR = 0.45;
 /** Queries shorter than this many lines are other passes' job. */
 export const TOKEN_MIN_LINES = 3;
+/**
+ * Fail-closed DP budget for the Levenshtein-floor confirmations below, in
+ * estimated LCS cells (queryChars × windowChars per check). Dice is cheap
+ * but indiscriminate on repetitive files: a 6 KB query against a 17 KB file
+ * qualified ~150 windows at ~36 M cells each ≈ 216 s live (2026-09-28,
+ * pool entries #832/#754). Qualifiers run dice-desc so the best candidate
+ * is confirmed first; exhaustion returns null instead of hanging the edit —
+ * a 3-minute match is a de-facto timeout in production, and the model gets
+ * a not-found diagnostic with near-miss guidance instead of silence.
+ * Precedent: block_anchor's BLOCK_ANCHOR_BUDGET_CELLS.
+ */
+export const TOKEN_DP_BUDGET_CELLS = 100_000_000;
 
 export function tokenOverlapFind(original: string, oldContent: string): string | null {
   const oldLines = oldContent.split("\n");
@@ -781,7 +793,7 @@ export function tokenOverlapFind(original: string, oldContent: string): string |
     win: string;
     dice: number;
   }
-  const qualifiers: Qualifier[] = [];
+  const candidates: Qualifier[] = [];
 
   // Window sizes M-2..M+2 cover off-by-a-line boundary drift.
   for (let size = minSize; size <= oldLines.length + 2; size++) {
@@ -803,13 +815,10 @@ export function tokenOverlapFind(original: string, oldContent: string): string |
       const dice = winTotal === 0 ? 0 : (2 * inter) / (queryTotal + winTotal);
       if (dice >= TOKEN_DICE_MIN) {
         const win = originalLines.slice(start, start + size).join("\n");
-        // Lev floor: shared vocabulary must also be shared ORDER-ish
-        // structure, else "same words elsewhere" re-anchors the edit.
-        if (
-          similarityUpperBound(oldContent, win) > TOKEN_LEV_FLOOR &&
-          similarity(oldContent, win) >= TOKEN_LEV_FLOOR
-        ) {
-          qualifiers.push({ start, end: start + size, win, dice });
+        // Upper bound is O(1): only materialized windows that can plausibly
+        // clear the floor reach the DP below.
+        if (similarityUpperBound(oldContent, win) > TOKEN_LEV_FLOOR) {
+          candidates.push({ start, end: start + size, win, dice });
         }
       }
 
@@ -825,6 +834,25 @@ export function tokenOverlapFind(original: string, oldContent: string): string |
         winCounts.set(t, (winCounts.get(t) ?? 0) + c);
         winTotal += c;
       }
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  // Best-dice-first: the true region usually outranks lookalikes, so the
+  // lev-floor confirmation (the expensive step) tests the most plausible
+  // window first and the DP budget below covers genuine rescues.
+  // Stable sort keeps scan order among dice ties, preserving best selection.
+  candidates.sort((a, b) => b.dice - a.dice);
+
+  const qualifiers: Qualifier[] = [];
+  let dpCells = 0;
+  for (const c of candidates) {
+    // Lev floor: shared vocabulary must also be shared ORDER-ish
+    // structure, else "same words elsewhere" re-anchors the edit.
+    dpCells += oldContent.length * c.win.length;
+    if (dpCells > TOKEN_DP_BUDGET_CELLS) return null;
+    if (similarity(oldContent, c.win) >= TOKEN_LEV_FLOOR) {
+      qualifiers.push(c);
     }
   }
   if (qualifiers.length === 0) return null;

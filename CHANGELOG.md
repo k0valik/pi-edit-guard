@@ -36,3 +36,10 @@
   (benchmark `stale-line`/`b9`/`error-guidance` grafts now block on first
   contact; re-read recovery still proceeds). Collapse/trim tolerance for
   genuine respace is unchanged.
+- `token_overlap` rescue pass: fail-closed LCS-DP cell budget (100 M,
+  best-dice-first) — repetitive file × large query shapes burned minutes
+  (pool #832: 218 s); now refuses in ~0.3 s with a diagnosable miss.
+- scripts: `pnpm score` imports repaired (stale `src/core` paths);
+  `score-chain.mjs` gains `--out` so pool and live-fixtures runs coexist
+  (`pnpm score:fixtures`); `snapshot-baseline.mjs` captures both score
+  summaries and prints the correct session-replay count.
