@@ -24,10 +24,14 @@ budget guard covered window _evaluations_, not DP _cells_.
 
 ## What we fixed
 
-- `TOKEN_DP_BUDGET_CELLS = 100_000_000` in `src/edit/matching/passes.ts`
+- `TOKEN_DP_BUDGET_CELLS = 250_000_000` in `src/edit/matching/passes.ts`
   (precedent: `BLOCK_ANCHOR_BUDGET_CELLS`). Qualifiers are confirmed
   dice-desc so the best candidate still goes first; exhaustion returns
-  `null` (fail-closed) instead of hanging the edit. A minutes-long match
+  `null` (fail-closed) instead of hanging the edit. The value was measured,
+  not guessed: a legitimate 73-line rescue needs ~25 windows ≈ 109 M cells
+  (live `old-era-20-01-14-270`, first set at 100 M and regressed it), so
+  250 M covers genuine rescues with headroom while still tripping an order
+  of magnitude below pathological shapes. A minutes-long match
   is a de-facto production timeout — the model gets a not-found
   diagnostic with near-miss guidance instead of silence.
 - The pass already runs dead last in `REPLACER_CHAIN` (`searchOnly`), so
@@ -45,8 +49,8 @@ budget guard covered window _evaluations_, not DP _cells_.
 | #754  | 161 s, error   | 0.3 s, error   | none (just fast)                         |
 
 Full pool re-score max entry time: 218 s → 8.3 s. Zero of the 67
-`blind-failure` entries are budget-shaped (query × file ≤ 100 M cells),
-so the budget caused no recall loss there; pass attribution vs the
+`blind-failure` entries are budget-shaped (none even approaches the
+budget), so the budget caused no recall loss there; pass attribution vs the
 2026-08-26 baseline is stable (`context_aware` 26 → 17 is the intended
 duplicate-import refusal working).
 

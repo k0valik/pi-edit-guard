@@ -758,14 +758,17 @@ export const TOKEN_MIN_LINES = 3;
  * Fail-closed DP budget for the Levenshtein-floor confirmations below, in
  * estimated LCS cells (queryChars × windowChars per check). Dice is cheap
  * but indiscriminate on repetitive files: a 6 KB query against a 17 KB file
- * qualified ~150 windows at ~36 M cells each ≈ 216 s live (2026-09-28,
- * pool entries #832/#754). Qualifiers run dice-desc so the best candidate
- * is confirmed first; exhaustion returns null instead of hanging the edit —
- * a 3-minute match is a de-facto timeout in production, and the model gets
- * a not-found diagnostic with near-miss guidance instead of silence.
- * Precedent: block_anchor's BLOCK_ANCHOR_BUDGET_CELLS.
+ * qualified ~150 windows at ~36 M cells each ≈ 216 s live, while a
+ * legitimate 73-line rescue needs ~25 windows ≈ 109 M cells (2026-09-28,
+ * pool entries #832/#754 vs live old-era-20-01-14-270). The 250 M budget
+ * covers genuine rescues with headroom and still trips an order of
+ * magnitude below pathological shapes. Qualifiers run dice-desc so the best
+ * candidate is confirmed first; exhaustion returns null instead of hanging
+ * the edit — a minutes-long match is a de-facto timeout in production, and
+ * the model gets a not-found diagnostic with near-miss guidance instead of
+ * silence. Precedent: block_anchor's BLOCK_ANCHOR_BUDGET_CELLS.
  */
-export const TOKEN_DP_BUDGET_CELLS = 100_000_000;
+export const TOKEN_DP_BUDGET_CELLS = 250_000_000;
 
 export function tokenOverlapFind(original: string, oldContent: string): string | null {
   const oldLines = oldContent.split("\n");
