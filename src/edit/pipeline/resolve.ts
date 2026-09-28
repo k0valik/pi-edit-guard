@@ -910,6 +910,13 @@ function findSingleUnique(blocks: string[], content: string): number | null {
  * - If the matched span has at least max(oldLines + 3, oldLines * 2) lines,
  *   refuse. This applies to single-line queries too: a one-line query that
  *   "matched" a 4+ line span is a misplaced boundary, not a real hit.
+ * - If the query holds more non-blank lines than the matched span, refuse
+ *   when the surplus is pure repetition — every extra copy already occurs in
+ *   the span (benchmark duplicate-import: a 4-line oldText repeating one of
+ *   the file's 3 lines, which duplicated the line on apply). A surplus line
+ *   the span never had is novel content (drifted memory, insert-via-replace)
+ *   and stays the fuzzy chain's business. Blank-line variance stays legal —
+ *   only content lines are counted, so dropped/added blank framing resolves.
  * - For multi-line queries: if trimmed matched text length exceeds
  *   max(trimmed query length + 500, trimmed query length * 4), refuse.
  */
@@ -917,6 +924,40 @@ function isDisproportionateMatch(search: string, oldText: string): boolean {
   const oldLines = oldText.split("\n").length;
   const searchLines = search.split("\n").length;
   if (searchLines >= Math.max(oldLines + 3, oldLines * 2)) return true;
+  if (isPureRepeatSurplus(search, oldText)) return true;
   if (oldLines === 1) return false;
   return search.trim().length > Math.max(oldText.trim().length + 500, oldText.trim().length * 4);
+}
+
+/**
+ * True when the query holds more non-blank lines than the matched span and
+ * every surplus copy already occurs in the span — the query adds no novel
+ * content, only extra copies of lines the file already has. Such a match is
+ * a hallucinated repeat, not a rescue: applying the (longer) replacement
+ * over the shorter span duplicates content.
+ */
+function isPureRepeatSurplus(search: string, oldText: string): boolean {
+  const counts = (s: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const line of s.split("\n")) {
+      const t = line.trim();
+      if (t.length === 0) continue;
+      m.set(t, (m.get(t) ?? 0) + 1);
+    }
+    return m;
+  };
+  const searchCounts = counts(search);
+  const oldCounts = counts(oldText);
+  let queryTotal = 0;
+  for (const v of oldCounts.values()) queryTotal += v;
+  let searchTotal = 0;
+  for (const v of searchCounts.values()) searchTotal += v;
+  if (queryTotal <= searchTotal) return false;
+  for (const [line, q] of oldCounts) {
+    const surplus = q - (searchCounts.get(line) ?? 0);
+    // A surplus copy of a line the span never had is novel content
+    // (drifted memory, insert-via-replace) — the fuzzy chain's business.
+    if (surplus > 0 && !searchCounts.has(line)) return false;
+  }
+  return true;
 }

@@ -71,7 +71,7 @@ describe("benchmark second wave (llm-report 2026-09-23) — misplaced edits", ()
     expect(written).toBe(b15LargeRangeDrift.drifted);
   });
 
-  it.fails("duplicate-import: hallucinated 4-line oldText must not duplicate", async () => {
+  it("duplicate-import: hallucinated 4-line oldText is refused, file untouched", async () => {
     // context_aware trims the phantom 4th line onto the 3 real ones.
     const { isError, written } = await runAgainst(duplicateImportHallucinated);
     expect(isError).toBe(true);
