@@ -74,9 +74,10 @@ After any change: `pnpm typecheck && pnpm lint`.
 
 ## Tests
 
-- Unit tests live in `src/__tests__/` (non-integration) and `src/__tests__/integration/` (session replay + fixtures)
-- Integration fixtures: `src/__tests__/integration/fixtures/` (files, sessions, failures)
-- Test runner: vitest (two projects: `pi-extension-template` for `src/`, `pi-base` for `packages/pi-base/`)
+- Unit tests live in `tests/` (non-integration) and `tests/integration/` (session replay + fixtures)
+- Integration fixtures: `tests/integration/fixtures/` (files, sessions, failures)
+- pi-base tests: `packages/pi-base/src/**/*.test.ts` and `packages/pi-base/tests/**/*.test.ts`
+- Test runner: vitest (two projects: `pi-extension-template` for `tests/`, `pi-base` for `packages/pi-base/`)
 - Timeout: 15s default; integration replay tests may need longer
 
 ---

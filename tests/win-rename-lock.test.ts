@@ -6,8 +6,8 @@ import { executeFile } from "../src/edit/pipeline/execute.js";
  * maps to MoveFileEx with MOVEFILE_REPLACE_EXISTING, which needs DELETE access
  * on the destination. A process that holds the destination open without
  * FILE_SHARE_DELETE — a script interpreter that just read the file, an
- * antivirus scan — makes that rename fail with EPERM, while a direct write to
- * the same path still succeeds. Before this change the guard reported the edit
+ * antivirus scan — makes that rename fail with EPERM, EACCES or EBUSY, while
+ * a direct write to the same path still succeeds. Before this change the guard reported the edit
  * as failed and deleted the temp file, so a lock of a few hundred milliseconds
  * lost the whole edit.
  */
@@ -90,6 +90,52 @@ describe("executeFile rename lock retry", () => {
     const warnings = (result.details?.postWriteWarnings ?? []) as string[];
     expect(warnings.some((w) => w.includes("[NON-ATOMIC WRITE]"))).toBe(true);
     expect(fs.unlink).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries EACCES and EBUSY lock errors, not just EPERM", async () => {
+    const fs = makeFs();
+    const codes = ["EACCES", "EBUSY"];
+    let calls = 0;
+    const result = await executeFile("target.txt", [{ oldText: "line3", newText: "LINE3" }], {
+      ...fs.opts,
+      unlink: fs.unlink,
+      rename: (from: string, to: string) => {
+        calls += 1;
+        if (calls <= codes.length) throw lockError(codes[calls - 1] as string);
+        fs.opts.rename?.(from, to);
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(calls).toBe(3);
+    expect(String(fs.files.get(fs.target()))).toBe("line1\nline2\nLINE3");
+    expect(result.details?.postWriteWarnings).toEqual([]);
+  });
+
+  it("surfaces the original rename error when the direct-write fallback also fails", async () => {
+    const fs = makeFs();
+    const rename = vi.fn(() => {
+      throw lockError("EPERM");
+    });
+    const result = await executeFile("target.txt", [{ oldText: "line1", newText: "LINE1" }], {
+      ...fs.opts,
+      unlink: fs.unlink,
+      rename,
+      // Tmp writes succeed; only the direct write to the destination fails,
+      // so the fallback cannot save the edit. Target is captured on the
+      // first readFile call, before any write, so the comparison is valid.
+      writeFile: (p: string, data: Buffer | string) => {
+        if (p === fs.target()) throw new Error("EACCES: permission denied, open");
+        fs.opts.writeFile(p, data);
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(rename).toHaveBeenCalledTimes(5); // first attempt + 4 backoff retries
+    expect(result.details?.error).toBe("write-failed");
+    expect(String(result.details?.message)).toContain("EPERM");
+    expect(String(fs.files.get(fs.target()))).toBe(ORIGINAL);
+    expect(fs.unlink).toHaveBeenCalled();
   });
 
   it("does not retry a rename error that cannot clear by waiting", async () => {
