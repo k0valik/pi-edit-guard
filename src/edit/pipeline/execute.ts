@@ -280,6 +280,68 @@ function preserveMode(
 }
 
 /**
+ * Windows maps fs.renameSync to MoveFileEx with MOVEFILE_REPLACE_EXISTING,
+ * which needs DELETE access on the destination. A process that holds the
+ * destination open without FILE_SHARE_DELETE — a script interpreter that just
+ * read the file, an antivirus scan, an editor — makes the rename fail with
+ * EPERM, EACCES or EBUSY, while a direct write to the same path still succeeds
+ * because it only needs write access. Those locks normally clear within a few
+ * hundred milliseconds, so retry with a short backoff. If the lock persists,
+ * write the destination directly: the temp file already holds the complete
+ * result, so the bytes are correct, and the caller's post-write re-read still
+ * verifies them. The fallback is not atomic, so it is reported as a warning.
+ */
+const RENAME_RETRY_DELAYS_MS = [50, 100, 200, 400];
+const TRANSIENT_LOCK_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+function isTransientLockError(err: unknown): boolean {
+  const code = (err as { code?: string } | null | undefined)?.code;
+  return typeof code === "string" && TRANSIENT_LOCK_CODES.has(code);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function renameWithLockRetry(
+  rename: (from: string, to: string) => void,
+  writeFile: (p: string, data: Buffer) => void,
+  unlink: (p: string) => void,
+  tmpPath: string,
+  writePath: string,
+  outputBuffer: Buffer,
+  postWriteWarnings: string[],
+): Promise<void> {
+  let lockError: unknown;
+  for (let attempt = 0; attempt <= RENAME_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await delay(RENAME_RETRY_DELAYS_MS[attempt - 1]);
+    try {
+      rename(tmpPath, writePath);
+      return;
+    } catch (err) {
+      // ENOENT, EISDIR and EXDEV cannot clear by waiting.
+      if (!isTransientLockError(err)) throw err;
+      lockError = err;
+    }
+  }
+  try {
+    writeFile(writePath, outputBuffer);
+  } catch {
+    // The destination rejects direct writes too, so it is not only locked.
+    // Surface the original rename error; the caller unlinks the temp file.
+    throw lockError;
+  }
+  try {
+    unlink(tmpPath);
+  } catch {
+    // best-effort cleanup
+  }
+  postWriteWarnings.push(
+    "[NON-ATOMIC WRITE] The destination stayed locked through every rename retry, so the edit was written directly instead of atomically. Another process held the file open. If it wrote during this window, re-read the file to confirm the result.",
+  );
+}
+
+/**
  * Execute a batch of edits against one file. Resolves the path against cwd,
  * reads raw bytes, detects encoding, strips the BOM, normalizes line endings
  * for matching, resolves every edit (multi-pass chain + anchor window), applies,
@@ -549,7 +611,15 @@ export async function executeFile(
         const outputBuffer = Buffer.from(newContent, encoding);
         writeFile(tmpPath, outputBuffer);
         preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
-        rename(tmpPath, writePath);
+        await renameWithLockRetry(
+          rename,
+          writeFile,
+          unlink,
+          tmpPath,
+          writePath,
+          outputBuffer,
+          postWriteWarnings,
+        );
 
         // Best-effort post-write re-read verification (see the full-apply
         // path): runs unconditionally, never blocks the result.
@@ -695,7 +765,15 @@ export async function executeFile(
       const outputBuffer = Buffer.from(newContent, encoding);
       writeFile(tmpPath, outputBuffer);
       preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
-      rename(tmpPath, writePath);
+      await renameWithLockRetry(
+        rename,
+        writeFile,
+        unlink,
+        tmpPath,
+        writePath,
+        outputBuffer,
+        postWriteWarnings,
+      );
 
       // Best-effort post-write re-read verification. Surfaces a warning if
       // on-disk bytes differ from expected output. Runs unconditionally —
