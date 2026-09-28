@@ -84,13 +84,13 @@ describe("benchmark second wave (llm-report 2026-09-23) — misplaced edits", ()
     expect(written).toBe("aaa\nBBB\nccc\n");
   });
 
-  it.fails("crlf-bom with LF-only query: CRLF ending must survive", async () => {
+  it("crlf-bom with LF-only query: CRLF ending survives", async () => {
     // LF-normalized match writes a bare \n back into a CRLF file.
     const { written } = await runAgainst(crlfBomLfQuery);
     expect(written).toBe("\uFEFFalpha\r\nBETA\r\ngamma\r\n");
   });
 
-  it.fails("b6-change-then-revert: trailing newline in newText must not append a blank line", async () => {
+  it("b6-change-then-revert: trailing newline in newText adds no blank line", async () => {
     const { written } = await runAgainst(b6TrailingNewline);
     expect(written).toBe("aaa\nB\nD\n");
   });

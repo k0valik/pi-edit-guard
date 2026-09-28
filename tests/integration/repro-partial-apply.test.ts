@@ -72,9 +72,11 @@ describe("repro: partial-apply corruption detection", () => {
     // Partial apply should have succeeded (not an error).
     expect(result.isError).toBe(false);
 
-    // The file content should contain the cascading duplicate.
+    // The file content should contain the cascading duplicate. (The splice
+    // drops one trailing line break that duplicates the file's own separator,
+    // so each block lands without its terminal newline plus the separator.)
     const written = fs.readFile(absolutePath).toString("utf-8");
-    expect(written).toBe(duplicatedBlock + "\n" + duplicatedBlock + "\n");
+    expect(written).toBe(duplicatedBlock.slice(0, -1) + "\n" + duplicatedBlock);
 
     // After the fix (post-edit content), this should detect the duplicate.
     expect((result.details.corruptionWarnings as string[]).length).toBeGreaterThan(0);

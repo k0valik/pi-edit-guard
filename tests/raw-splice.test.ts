@@ -92,6 +92,54 @@ describe("spliceOntoRaw", () => {
     const result = spliceOntoRaw(raw, splices);
     expect(result).toBe("much longer replacement\r\ntext");
   });
+
+  it("strips a lone trailing newline that duplicates the following line break (b6)", () => {
+    // norm "aaa\nbbb\nccc\nddd\n": span "bbb\nccc\nddd" is 4..15,
+    // newText "B\nD\n" must not append a blank line.
+    const raw = "aaa\nbbb\nccc\nddd\n";
+    const result = spliceOntoRaw(raw, [{ normStart: 4, normEnd: 15, newStr: "B\nD\n" }]);
+    expect(result).toBe("aaa\nB\nD\n");
+  });
+
+  it("lands exactly one blank line for a double trailing newline", () => {
+    // newText "BBB\n\n" contributes one blank; the file's own separator
+    // contributes the line break — strip-one keeps intent exact.
+    const raw = "aaa\nbbb\nccc\n";
+    const result = spliceOntoRaw(raw, [{ normStart: 4, normEnd: 7, newStr: "BBB\n\n" }]);
+    expect(result).toBe("aaa\nBBB\n\nccc\n");
+  });
+
+  it("keeps a trailing newline added at EOF (no following break to duplicate)", () => {
+    const raw = "aaa\nbbb";
+    const result = spliceOntoRaw(raw, [{ normStart: 4, normEnd: 7, newStr: "BBB\n" }]);
+    expect(result).toBe("aaa\nBBB\n");
+  });
+
+  it("strips the duplicated break in a CRLF file without touching endings (crlf-bom K2)", () => {
+    // raw BOM-stripped "alpha\r\nbeta\r\ngamma\r\n", norm span "beta" 6..10,
+    // newText "BETA\n" must become "BETA" + existing CRLF.
+    const raw = "alpha\r\nbeta\r\ngamma\r\n";
+    const result = spliceOntoRaw(raw, [{ normStart: 6, normEnd: 10, newStr: "BETA\n" }]);
+    expect(result).toBe("alpha\r\nBETA\r\ngamma\r\n");
+  });
+
+  it("conforms interior newlines of newStr to a CRLF span", () => {
+    const raw = "alpha\r\nbeta\r\ngamma\r\n";
+    const result = spliceOntoRaw(raw, [{ normStart: 6, normEnd: 10, newStr: "B1\nB2" }]);
+    expect(result).toBe("alpha\r\nB1\r\nB2\r\ngamma\r\n");
+  });
+
+  it("leaves CR-free newStr alone in LF files", () => {
+    const raw = "alpha\nbeta\ngamma\n";
+    const result = spliceOntoRaw(raw, [{ normStart: 6, normEnd: 10, newStr: "B1\nB2" }]);
+    expect(result).toBe("alpha\nB1\nB2\ngamma\n");
+  });
+
+  it("leaves EOL-aware newStr (already CRLF) verbatim", () => {
+    const raw = "alpha\r\nbeta\r\ngamma\r\n";
+    const result = spliceOntoRaw(raw, [{ normStart: 6, normEnd: 10, newStr: "B1\r\nB2" }]);
+    expect(result).toBe("alpha\r\nB1\r\nB2\r\ngamma\r\n");
+  });
 });
 
 describe("buildLineOffsets", () => {

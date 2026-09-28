@@ -64,7 +64,20 @@ export function buildNormToRawMap(raw: string, norm: string): Int32Array {
 /** Rebuild the file on top of the original rawContent: untouched regions keep
  *  their original bytes (including CRLF / mixed endings), edited regions get
  *  the verbatim newStr the caller supplied. Splices must be sorted by
- *  normStart and non-overlapping. */
+ *  normStart and non-overlapping.
+ *
+ *  Two hygiene rules keep model-side newline sloppiness from corrupting
+ *  bytes (benchmark b6-change-then-revert, crlf-bom):
+ *  - one trailing line break (`\n` or `\r\n`) in newStr is dropped when the
+ *    span is already followed by a line break: the oldText lacked it, so it
+ *    duplicates the file's own separator instead of adding a blank line.
+ *    Blank-line intent still lands — `BBB\n\n` becomes `BBB\n` plus the
+ *    file's break, i.e. exactly one blank line;
+ *  - bare `\n` inside newStr conform to the replaced span's line ending when
+ *    the span (or the break right after it) carries `\r` and newStr carries
+ *    none. An EOL-aware newStr that already holds `\r` is left verbatim, so
+ *    deliberate conversions survive.
+ */
 export function spliceOntoRaw(rawContent: string, splices: RawSplice[]): string {
   if (splices.length === 0) return rawContent;
   const norm = normalizeLineEndings(rawContent);
@@ -75,11 +88,36 @@ export function spliceOntoRaw(rawContent: string, splices: RawSplice[]): string 
     const rawStart = map[s.normStart] ?? 0;
     const rawEnd = map[s.normEnd] ?? rawContent.length;
     if (rawStart > rawCursor) out += rawContent.substring(rawCursor, rawStart);
-    out += s.newStr;
+    const rawSpan = rawContent.substring(rawStart, rawEnd);
+    let newStr = s.newStr;
+    // Drop one trailing line break when the span is already followed by one:
+    // the oldText lacked it, so it duplicates the file's own separator
+    // instead of adding a blank line. Blank-line intent still lands — the
+    // remaining breaks plus the file's separator keep exact count.
+    const trailingUnit = newStr.endsWith("\r\n") ? "\r\n" : newStr.endsWith("\n") ? "\n" : "";
+    if (trailingUnit !== "" && norm[s.normEnd] === "\n") {
+      newStr = newStr.slice(0, -trailingUnit.length);
+    }
+    newStr = conformLineEndings(newStr, rawSpan + rawContent.slice(rawEnd, rawEnd + 2));
+    out += newStr;
     rawCursor = rawEnd;
   }
   if (rawCursor < rawContent.length) out += rawContent.substring(rawCursor);
   return out;
+}
+
+/**
+ * Conform bare LF line breaks in `newStr` to the line-ending style around
+ * the replaced span (the span itself, else the break right after it — a
+ * single-line span like `beta` carries no break of its own). No-op when
+ * newStr is EOL-aware (holds `\r`), holds no line breaks, or the context
+ * is LF-only.
+ */
+export function conformLineEndings(newStr: string, rawContext: string): string {
+  if (!newStr.includes("\n") || newStr.includes("\r")) return newStr;
+  if (rawContext.includes("\r\n")) return newStr.replace(/\n/g, "\r\n");
+  if (rawContext.includes("\r")) return newStr.replace(/\n/g, "\r");
+  return newStr;
 }
 
 /** Build line offset table: offsets[i] = character offset of line i+1 (1-based).
