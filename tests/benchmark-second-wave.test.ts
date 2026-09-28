@@ -78,8 +78,8 @@ describe("benchmark second wave (llm-report 2026-09-23) — misplaced edits", ()
     expect(written).toBe(duplicateImportHallucinated.drifted);
   });
 
-  it.fails("whitespace-only: full-line replace must strip trailing spaces", async () => {
-    // Byte-preserving substring match keeps `BBB  `; harness wants `BBB`.
+  it("whitespace-only: full-line replace strips trailing spaces", async () => {
+    // Whole-line trailing expansion in findMatch widens `bbb` to `bbb  `.
     const { written } = await runAgainst(whitespaceOnlyTrailing);
     expect(written).toBe("aaa\nBBB\nccc\n");
   });

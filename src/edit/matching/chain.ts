@@ -37,10 +37,35 @@ export function findMatch(
     // An empty `actual` is never a valid match (issue #4). Skipping it also
     // lets later passes get a chance instead of committing to the bug.
     if (actual !== null && actual.length > 0) {
-      return { actual, passName: name };
+      return { actual: expandToLineTail(orig, old, actual), passName: name };
     }
   }
   return null;
+}
+
+/**
+ * Whole-line trailing expansion — a single-line query that names a line
+ * modulo surrounding whitespace widens a sub-line hit to the line's end so
+ * full-line replaces strip trailing whitespace (benchmark whitespace-only:
+ * `bbb` against `bbb␣␣` yields `BBB`, not `BBB␣␣`).
+ *
+ * Narrow by construction: multi-line queries and multi-line hits pass
+ * through, mid-line tokens (`limit=100` inside a URL line, `deploy` inside
+ * YAML lines) keep substring semantics because the query never equals the
+ * whole line after trim, and leading indentation is never absorbed — the
+ * head of the hit stays where the pass put it, only the tail widens.
+ */
+function expandToLineTail(orig: string, old: string, actual: string): string {
+  if (old.includes("\n") || actual.includes("\n")) return actual;
+  const idx = orig.indexOf(actual);
+  if (idx === -1) return actual;
+  const lineEnd = orig.indexOf("\n", idx);
+  const end = lineEnd === -1 ? orig.length : lineEnd;
+  const lineStart = orig.lastIndexOf("\n", idx - 1) + 1;
+  const line = orig.slice(lineStart, end);
+  if (line.trim() !== old.trim()) return actual;
+  if (idx + actual.length >= end) return actual;
+  return orig.slice(idx, end);
 }
 
 /**
