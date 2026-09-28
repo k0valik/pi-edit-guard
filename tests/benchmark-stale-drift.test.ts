@@ -97,7 +97,10 @@ describe("benchmark stale-drift fixtures — drift must never be overwritten", (
 
   it.fails("stale-line: single-token substring graft is hook territory", async () => {
     // Content-only matching cannot distinguish drifted `bbb-external` from
-    // a legitimate sub-line target — the stale-read hook owns this case.
+    // a legitimate sub-line target — the stale-read hook owns this case and
+    // blocks it on first contact (proven end to end in
+    // tests/stale-read-benchmark-e2e.test.ts: single-line queries must name
+    // a whole line for the verbatim/whitespace safety downgrades).
     const { isError, written } = await runAgainstDrifted(staleLine);
     expect(isError).toBe(true);
     expect(written).toBe(staleLine.drifted);

@@ -10,7 +10,7 @@
  * semantics. Leading indentation is never absorbed — only the tail widens.
  */
 import { describe, it, expect } from "vitest";
-import { findMatch } from "../src/edit/matching/chain.js";
+import { findMatch, isWhitespaceTolerantMatch } from "../src/edit/matching/chain.js";
 import { executeFile } from "../src/edit/pipeline/execute.js";
 
 describe("whole-line trailing expansion in findMatch", () => {
@@ -49,5 +49,74 @@ describe("whole-line trailing expansion in findMatch", () => {
   it("does not expand when the query is longer than the trimmed line", () => {
     const hit = findMatch("bbb\n", "bbb extra");
     expect(hit).toBeNull();
+  });
+});
+
+describe("isWhitespaceTolerantMatch single-line rule", () => {
+  // Stale-read guard support: a bare substring inside a longer drifted line
+  // is content drift, not whitespace drift (benchmark stale-line/b9).
+  it("rejects a substring inside a longer drifted line", () => {
+    expect(isWhitespaceTolerantMatch("aaa\nbbb-external\nccc\n", "bbb")).toBe(false);
+  });
+
+  it("accepts a trim-equal line with trailing spaces", () => {
+    expect(isWhitespaceTolerantMatch("aaa\nbbb  \nccc\n", "bbb")).toBe(true);
+  });
+
+  it("accepts an indent-only difference", () => {
+    expect(isWhitespaceTolerantMatch("function f() {\n    return 1;\n}\n", "  return 1;")).toBe(
+      true,
+    );
+  });
+
+  it("accepts genuine intra-line respace via collapse", () => {
+    expect(isWhitespaceTolerantMatch("read a  b c\n", "read a b c")).toBe(true);
+  });
+
+  it("rejects mid-line tokens (never whole-line candidates)", () => {
+    expect(isWhitespaceTolerantMatch('const x = "limit=100";\n', "limit=100")).toBe(false);
+  });
+});
+
+describe("whitespace-only end to end", () => {
+  async function runOnce(content: string, oldText: string, newText: string): Promise<string> {
+    const path = "/bench/ws.ts";
+    const store = new Map<string, Buffer>([[path, Buffer.from(content, "utf-8")]]);
+    const result = await executeFile(path, [{ oldText, newText }], {
+      cwd: "/bench",
+      readFile: (p) => {
+        const hit = store.get(p);
+        if (hit === undefined) throw new Error(`unexpected read: ${p}`);
+        return hit;
+      },
+      writeFile: (p, data) => {
+        store.set(p, Buffer.isBuffer(data) ? data : Buffer.from(data, "utf-8"));
+      },
+      rename: (from, to) => {
+        store.set(to, store.get(from)!);
+        store.delete(from);
+      },
+      exists: () => true,
+      mkdir: () => {},
+      unlink: (p) => {
+        store.delete(p);
+      },
+      stat: () => ({ mode: 0o644 }),
+      chmod: () => {},
+      lstat: () => ({ isSymbolicLink: () => false }),
+      realpath: (p) => p,
+    });
+    expect(result.isError).toBe(false);
+    return store.get(path)!.toString("utf-8");
+  }
+
+  it("strips trailing spaces on a full-line replace", async () => {
+    expect(await runOnce("aaa\nbbb  \nccc\n", "bbb", "BBB")).toBe("aaa\nBBB\nccc\n");
+  });
+
+  it("keeps substring semantics inside longer lines", async () => {
+    const line = '  const endpoint = "https://api.example.com/v1/resources?limit=100&sort=asc";';
+    const out = await runOnce(`${line}\n`, "limit=100", "limit=250");
+    expect(out).toBe(`${line.replace("limit=100", "limit=250")}\n`);
   });
 });

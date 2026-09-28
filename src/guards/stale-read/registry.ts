@@ -164,6 +164,15 @@ export class ReadRegistry {
    * True when EVERY oldText is still present in the current file content
    * (compared CRLF-normalized in both directions). Without a readFile
    * injection the check cannot run — treated as NOT safe.
+   *
+   * Single-line queries must name a whole line (after trim): bare substring
+   * containment inside a longer drifted line (`bbb` inside `bbb-external`)
+   * is not applicability evidence — the splice would graft onto the drift
+   * (benchmark stale-line/b9/error-guidance, silent-wrong-line). The
+   * escalation ladder keeps this usable: first contact blocks with re-read
+   * guidance, the re-read resets the baseline, and the corrected retry
+   * proceeds. Sub-line targets are unaffected on fresh files (no check runs
+   * when nothing changed).
    */
   private isVerbatimSafe(key: string, oldTexts?: string[]): boolean {
     if (!oldTexts || oldTexts.length === 0) return false;
@@ -175,9 +184,15 @@ export class ReadRegistry {
       return false;
     }
     const normContent = content.replace(/\r\n/g, "\n");
+    const contentLines = normContent.split("\n");
     return oldTexts.every((t) => {
       if (typeof t !== "string" || t.length === 0) return false;
       const norm = t.replace(/\r\n/g, "\n");
+      if (!norm.includes("\n")) {
+        const want = norm.trim();
+        if (want.length === 0) return false;
+        return contentLines.some((line) => line.trim() === want);
+      }
       return normContent.includes(norm) || content.includes(t);
     });
   }

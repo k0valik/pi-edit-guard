@@ -328,10 +328,12 @@ describe("ReadRegistry whitespace-tolerant downgrade", () => {
 
     // Drifted boundary line: neither verbatim nor whitespace-tolerant
     // resolution applies — the small-model structural-garbage case.
-    // (Single bare tokens like `bbb` keep the lenient verbatim-substring
-    // treatment: content alone cannot tell drift residue from a legitimate
-    // sub-line target, and blocking those is the annoyance this ladder
-    // exists to avoid.)
+    // (Single bare tokens like `bbb` against `bbb-external` likewise keep
+    // the hard block: substring containment inside a longer drifted line is
+    // content drift, and the splice would graft onto it. The escalation
+    // ladder keeps this usable — first contact blocks with re-read guidance,
+    // the re-read resets the baseline, and the corrected retry proceeds.
+    // Sub-line targets on fresh files never reach this check at all.)
     rewrite("aaa\nbbb-external\nccc\n");
     touch(5000);
     expect(registry.assertFresh(p, { oldTexts: ["bbb\nccc"] })?.kind).toBe("stale-read");
@@ -367,5 +369,66 @@ describe("ReadRegistry whitespace-tolerant downgrade", () => {
     expect(registry.assertFresh(p, { oldTexts: ["  return 1;"] })?.kind).toBe("stale-read-warning");
     // Drift cannot affect this edit — nothing to verify beyond the diff.
     expect(registry.getStaleWarning(p, ["  return 1;"])).toBeNull();
+  });
+});
+
+describe("single-line safety is whole-line, not substring", () => {
+  // Benchmark stale-line/b9/error-guidance: `bbb` inside `bbb-external` is
+  // content drift. Both safety checks must refuse the downgrade so first
+  // contact blocks with re-read guidance instead of grafting `BBB-external`.
+  it("verbatim-safe refuses a substring inside a longer drifted line", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "aaa\nbbb\nccc\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.ts";
+    registry.record(p);
+
+    rewrite("aaa\nbbb-external\nccc\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["bbb"] })?.kind).toBe("stale-read");
+  });
+
+  it("verbatim-safe still downgrades a trim-equal line with trailing spaces", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "aaa\nbbb\nccc\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.ts";
+    registry.record(p);
+
+    rewrite("aaa\nbbb  \nccc\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["bbb"] })?.kind).toBe("stale-read-warning");
+  });
+
+  it("whitespace-tolerant still downgrades genuine intra-line respace", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "read a b c\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.md";
+    registry.record(p);
+
+    rewrite("read a  b c\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["read a b c"] })?.kind).toBe("stale-read-warning");
+  });
+
+  it("requires EVERY oldText whole-line-safe in multi-edit calls", () => {
+    const { registry, touch, rewrite } = makeRegistry({
+      mtime: 100,
+      content: "aaa\nbbb\nccc\n",
+      now: 1_000,
+    });
+    const p = "/repo/f.ts";
+    registry.record(p);
+
+    rewrite("aaa\nbbb-external\nccc\n");
+    touch(5000);
+    expect(registry.assertFresh(p, { oldTexts: ["aaa", "bbb"] })?.kind).toBe("stale-read");
   });
 });

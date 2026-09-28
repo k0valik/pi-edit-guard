@@ -85,11 +85,26 @@ function expandToLineTail(orig: string, old: string, actual: string): string {
  * against current bytes, drift is provably whitespace-only and the edit
  * proceeds with an advisory instead of a hard block. A match here means
  * the splice lands deterministically — the drift cannot redirect it.
+ *
+ * Single-line queries resolve here only on a whitespace-collapsed whole-line
+ * hit (see implementation): a bare substring inside a longer drifted line
+ * is content drift, not whitespace drift, and keeps the hard block.
  */
 export function isWhitespaceTolerantMatch(original: string, oldContent: string): boolean {
   if (oldContent.length === 0) return false;
   const orig = normalizeNewlines(original);
   const old = normalizeNewlines(oldContent);
+  // Single-line queries must name a whole line (whitespace-collapsed):
+  // substring containment inside a longer drifted line (`bbb` inside
+  // `bbb-external`) is content drift, not whitespace drift — the stale-read
+  // guard must keep its first-contact block there (benchmark
+  // stale-line/b9/error-guidance). Collapse keeps genuine respace tolerance
+  // (`a  b` still matches `a b`); trim keeps indent/trailing-space tolerance.
+  if (!old.includes("\n")) {
+    const want = old.replace(/\s+/g, " ").trim();
+    if (want.length === 0) return false;
+    return orig.split("\n").some((line) => line.replace(/\s+/g, " ").trim() === want);
+  }
   const finds = [simpleFind, lineTrimmedFind, whitespaceNormalizedFind, indentationFlexibleFind];
   for (const find of finds) {
     const actual = find(orig, old);

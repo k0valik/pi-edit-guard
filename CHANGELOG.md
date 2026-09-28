@@ -19,3 +19,20 @@
   downgrades the first-contact block to proceed-with-advisory when every
   `oldText` still resolves through a whitespace-only-tolerant match
   (Tier 1-3). Content drift keeps the hard block.
+- `edit`: single-line whole-line matches widen to the line tail, so
+  full-line replaces strip trailing whitespace (benchmark
+  `whitespace-only`). Mid-line tokens keep substring semantics; leading
+  indentation is never absorbed.
+- `edit`: splice hygiene — one trailing line break in `newText` that
+  duplicates the file's own separator is dropped (benchmark
+  `b6-change-then-revert` blank line, `crlf-bom` LF-query corruption);
+  interior bare-LF breaks conform to a CRLF span. EOL-aware `newText`
+  stays verbatim.
+- `edit`: refuse pure-repeat surplus matches where the query holds more
+  content lines than the span but adds no novel content (benchmark
+  `duplicate-import` hallucinated 4-line query no longer duplicates).
+- stale-read guard: single-line safety is whole-line, not substring —
+  `bbb` inside drifted `bbb-external` no longer downgrades to advisory
+  (benchmark `stale-line`/`b9`/`error-guidance` grafts now block on first
+  contact; re-read recovery still proceeds). Collapse/trim tolerance for
+  genuine respace is unchanged.
