@@ -52,6 +52,7 @@
     "prepare": "node scripts/prepare.mjs",
     "pool": "jiti scripts/build-failure-pool.mjs",
     "score": "jiti scripts/score-chain.mjs",
+    "score:fixtures": "jiti scripts/score-chain.mjs --fixtures --out score-report-fixtures.json",
     "baseline": "jiti scripts/snapshot-baseline.mjs"
   },
   "dependencies": {

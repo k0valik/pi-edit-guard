@@ -1,0 +1,71 @@
+{
+  "capturedAt": "2026-09-28T22:03:14.906Z",
+  "entries": 71,
+  "outcomes": {
+    "full-apply": 47,
+    "partial": 8,
+    "error": 14,
+    "prepare-throw": 2
+  },
+  "failureClasses": {
+    "partial": 8,
+    "precise-diagnostic": 12,
+    "blind-failure": 2
+  },
+  "passAttribution": {
+    "simple": 38,
+    "block_anchor": 12,
+    "fuzzy_boundary": 8,
+    "token_overlap": 3,
+    "block_anchor_levenshtein": 1,
+    "unicode_normalized": 1
+  },
+  "timingMs": {
+    "median": 1,
+    "p90": 37,
+    "p99": 682,
+    "max": 682
+  },
+  "slowest": [
+    {
+      "durationMs": 682,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 420,
+      "outcome": "error"
+    },
+    {
+      "durationMs": 371,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 252,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 61,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 52,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 43,
+      "outcome": "error"
+    },
+    {
+      "durationMs": 37,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 34,
+      "outcome": "full-apply"
+    },
+    {
+      "durationMs": 31,
+      "outcome": "error"
+    }
+  ]
+}

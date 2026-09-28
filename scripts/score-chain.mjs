@@ -4,6 +4,8 @@
 //
 //   pnpm exec jiti scripts/score-chain.mjs                     # score tmp/pool/pool.json
 //   pnpm exec jiti scripts/score-chain.mjs --fixtures          # calibrate against live-failures.json
+//   pnpm exec jiti scripts/score-chain.mjs --fixtures --out score-report-fixtures.json
+//                                                             # second baseline next to the pool report
 //   pnpm exec jiti scripts/score-chain.mjs --limit 200         # quick runs
 //
 // Per entry (production order: prepareEditArguments -> schema -> executeFile):
@@ -26,10 +28,10 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-const { prepareEditArguments, EDIT_SCHEMA } = await import("../src/core/edit/prepare-arguments.js");
+const { prepareEditArguments, EDIT_SCHEMA } = await import("../src/repair/entry.js");
 const { Value } = await import("typebox/value");
-const { executeFile } = await import("../src/core/edit/execute-file.js");
-const { similarity } = await import("../src/core/edit/similarity.js");
+const { executeFile } = await import("../src/edit/pipeline/execute.js");
+const { similarity } = await import("../src/edit/matching/similarity.js");
 
 // ---------------------------------------------------------------------------
 // Token-set similarity (Sørensen-Dice / Jaccard over multiset tokens)
@@ -198,6 +200,10 @@ async function main() {
   const offset = offsetIdx !== -1 ? Number(process.argv[offsetIdx + 1]) : 0;
   const sampleIdx = process.argv.indexOf("--sample");
   const sampleEvery = sampleIdx !== -1 ? Number(process.argv[sampleIdx + 1]) : 0;
+  const outIdx = process.argv.indexOf("--out");
+  // Separate outputs so the pool run and the live-fixtures run can coexist
+  // as two baselines (default: tmp/pool/score-report.json).
+  const outName = outIdx !== -1 ? process.argv[outIdx + 1] : "score-report.json";
 
   let entries;
   if (useFixtures) {
@@ -227,7 +233,8 @@ async function main() {
   const report = [];
   const t0 = Date.now();
   const timings = [];
-  const CHECKPOINT = join(process.cwd(), "tmp", "pool", `score-part-${offset}-${slice.length}.json`);
+  const tag = outName.replace(/\.json$/, "");
+  const CHECKPOINT = join(process.cwd(), "tmp", "pool", `score-part-${tag}-${offset}-${slice.length}.json`);
   for (let i = 0; i < slice.length; i++) {
     const e = slice[i];
     const started = Date.now();
@@ -320,14 +327,14 @@ async function main() {
 
   mkdirSync(join(process.cwd(), "tmp", "pool"), { recursive: true });
   writeFileSync(
-    join(process.cwd(), "tmp", "pool", "score-report.json"),
+    join(process.cwd(), "tmp", "pool", outName),
     JSON.stringify(
       { builtAt: new Date().toISOString(), offset, sampleEvery, outcomes, classes, passHits, slowest, report },
       null,
       1,
     ),
   );
-  console.log("\n-> tmp/pool/score-report.json");
+  console.log(`\n-> tmp/pool/${outName}`);
 
   // Top candidates preview
   const cands = report.filter((r) => r.failureClass === "CANDIDATE").slice(0, 12);

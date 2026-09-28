@@ -1,0 +1,82 @@
+{
+  "capturedAt": "2026-09-28T22:03:14.904Z",
+  "entries": 1437,
+  "outcomes": {
+    "partial": 330,
+    "error": 402,
+    "full-apply": 576,
+    "prepare-throw": 124,
+    "skipped-hugetext": 5
+  },
+  "failureClasses": {
+    "partial": 330,
+    "precise-diagnostic": 282,
+    "blind-failure": 67,
+    "CANDIDATE": 53
+  },
+  "passAttribution": {
+    "simple": 1001,
+    "block_anchor": 176,
+    "token_overlap": 135,
+    "fuzzy_boundary": 75,
+    "indentation_flexible": 30,
+    "trimmed_boundary": 26,
+    "context_aware": 17,
+    "line_trimmed": 17,
+    "auto_expand": 12,
+    "unicode_normalized": 11,
+    "block_anchor_levenshtein": 5,
+    "escape_normalized": 5,
+    "replace_all": 2,
+    "whitespace_normalized": 2,
+    "robust_backslash": 2
+  },
+  "timingMs": {
+    "median": 3,
+    "p90": 159,
+    "p99": 1501,
+    "max": 8253
+  },
+  "slowest": [
+    {
+      "durationMs": 8253,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 5712,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 5258,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 4410,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 3961,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 1920,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 1852,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 1852,
+      "outcome": "error"
+    },
+    {
+      "durationMs": 1761,
+      "outcome": "partial"
+    },
+    {
+      "durationMs": 1671,
+      "outcome": "error"
+    }
+  ]
+}

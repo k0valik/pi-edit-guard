@@ -35,8 +35,19 @@ if (existsSync(outDir) && !force) {
 mkdirSync(outDir, { recursive: true });
 
 // --- pool score ------------------------------------------------------------
-const scorePath = join(root, "tmp", "pool", "score-report.json");
-if (existsSync(scorePath)) {
+// Two runs share this shape: the session pool (tmp/pool/score-report.json,
+// from `pnpm score`) and the live-fixtures run
+// (tmp/pool/score-report-fixtures.json, from `pnpm score:fixtures`).
+const poolScoreFiles = [
+  ["score-report.json", "pool-score-summary.json"],
+  ["score-report-fixtures.json", "pool-score-fixtures-summary.json"],
+];
+for (const [inName, outName] of poolScoreFiles) {
+  const scorePath = join(root, "tmp", "pool", inName);
+  if (!existsSync(scorePath)) {
+    console.log(`${outName} SKIPPED (no tmp/pool/${inName})`);
+    continue;
+  }
   const r = JSON.parse(readFileSync(scorePath, "utf8"));
   const arr = Array.isArray(r) ? r : r.report ?? r.entries ?? [];
   const by = (fn) => {
@@ -68,10 +79,8 @@ if (existsSync(scorePath)) {
     timingMs: { median: pct(0.5), p90: pct(0.9), p99: pct(0.99), max: durs.at(-1) ?? null },
     slowest,
   };
-  writeFileSync(join(outDir, "pool-score-summary.json"), JSON.stringify(summary, null, 2) + "\n");
-  console.log(`pool-score-summary.json (${arr.length} entries, max ${summary.timingMs.max}ms)`);
-} else {
-  console.log("pool-score-summary.json SKIPPED (no tmp/pool/score-report.json — run `pnpm score` first)");
+  writeFileSync(join(outDir, outName), JSON.stringify(summary, null, 2) + "\n");
+  console.log(`${outName} (${arr.length} entries, max ${summary.timingMs.max}ms)`);
 }
 
 // --- live corpus -----------------------------------------------------------
@@ -111,7 +120,7 @@ if (existsSync(sessPath)) {
   };
   writeFileSync(join(outDir, "session-replay-summary.json"), JSON.stringify(summary, null, 2) + "\n");
   console.log(
-    `session-replay-summary.json (${r.baselineErrors} baseline -> ${r.ourErrors} ours, ${r.improved} improved / ${r.regressed} regressed)`,
+    `session-replay-summary.json (${r.baselineErrors} baseline -> ${r.ourToolErrors} ours, ${r.improved} improved / ${r.regressed} regressed)`,
   );
 } else {
   console.log("session-replay-summary.json SKIPPED (no replay-report.json — run `pnpm replay` first)");
