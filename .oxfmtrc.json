@@ -2,6 +2,7 @@
   "ignorePatterns": [
     "tests/integration/fixtures/files",
     "tests/integration/fixtures/session-failures.json",
+    "tests/integration/fixtures/benchmark/traces",
     "scripts/**/*.mjs",
     "tmp/**/*.mjs"
   ],

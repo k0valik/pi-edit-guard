@@ -182,3 +182,97 @@ export const crlfBom: BenchmarkScenario = {
   agentEdit: { oldText: "beta", newText: "BETA" },
   traceRef: "mimo-v2.6-pro/pi-edit-guard-crlf-bom.json",
 };
+
+/**
+ * Second-wave failures from the 10-model llm-report (2026-09-23,
+ * contender pi-edit-guard 0.1.5). Each entry pins the exact agent tool
+ * arguments from the cited trace; the copied trace JSON lives in
+ * tests/integration/fixtures/benchmark/traces/.
+ */
+
+// 200-line range with one drifted interior line; the stale 181-line search
+// text must be refused, not fuzzy-grafted (block_anchor scores the interior
+// at ~0.999 and silently overwrites line100-drifted).
+// Trace: gemma-4-26b-a4b-q4/pi-edit-guard-b15-large-range-drift.json.
+const b15Old = Array.from({ length: 181 }, (_, i) => `line${i + 10}`).join("\n");
+const b15Fixture = Array.from({ length: 200 }, (_, i) => `line${i + 1}`).join("\n") + "\n";
+export const b15LargeRangeDrift: BenchmarkScenario = {
+  id: "b15-large-range-drift",
+  fileName: "b15.ts",
+  fixture: b15Fixture,
+  drifted: b15Fixture.replace("line100", "line100-drifted"),
+  agentEdit: { oldText: b15Old, newText: "X\n" },
+  traceRef: "gemma-4-26b-a4b-q4/pi-edit-guard-b15-large-range-drift.json",
+};
+
+// Model hallucinated a 4-line oldText for a 3-line file; context_aware
+// trimmed it to the 3 real lines and duplicated instead of replacing.
+// Trace: k2-horizon-7b-q4/pi-edit-guard-duplicate-import.json.
+export const duplicateImportHallucinated: BenchmarkScenario = {
+  id: "duplicate-import",
+  fileName: "dup-import.ts",
+  fixture: "import { a } from 'x';\nimport { b } from 'y';\nimport { a } from 'x';\n",
+  drifted: "import { a } from 'x';\nimport { b } from 'y';\nimport { a } from 'x';\n",
+  agentEdit: {
+    oldText:
+      "import { a } from 'x';\nimport { b } from 'y';\nimport { a } from 'x';\nimport { a } from 'x';",
+    newText:
+      "import { a } from 'x';\nimport { b } from 'y';\nimport { a2 } from 'x';\nimport { a } from 'x';",
+  },
+  traceRef: "k2-horizon-7b-q4/pi-edit-guard-duplicate-import.json",
+};
+
+// Target line carries trailing spaces; the benchmark expects a full-line
+// replace that strips them, but byte-preserving substring matching keeps
+// them (`BBB  `). Known design divergence, pinned.
+// Trace: k2-horizon-3.7b-q4/pi-edit-guard-whitespace-only.json.
+export const whitespaceOnlyTrailing: BenchmarkScenario = {
+  id: "whitespace-only",
+  fileName: "ws.ts",
+  fixture: "aaa\nbbb  \nccc\n",
+  drifted: "aaa\nbbb  \nccc\n",
+  agentEdit: { oldText: "bbb", newText: "BBB" },
+  traceRef: "k2-horizon-3.7b-q4/pi-edit-guard-whitespace-only.json",
+};
+
+// LF-only search text against a BOM+CRLF file; the LF-normalized match
+// writes a bare `\n` back and corrupts line 2's CRLF ending.
+// Trace: k2-horizon-3.7b-q4/pi-edit-guard-crlf-bom.json.
+export const crlfBomLfQuery: BenchmarkScenario = {
+  id: "crlf-bom",
+  fileName: "crlf-bom.txt",
+  fixture: "\uFEFFalpha\r\nbeta\r\ngamma\r\n",
+  drifted: "\uFEFFalpha\r\nbeta\r\ngamma\r\n",
+  agentEdit: { oldText: "beta\n", newText: "BETA\n" },
+  traceRef: "k2-horizon-3.7b-q4/pi-edit-guard-crlf-bom.json",
+};
+
+// newText carries a trailing newline the oldText lacks; the splice appends
+// a blank line (`aaa\nB\nD\n\n` instead of `aaa\nB\nD\n`).
+// Trace: gemma-4-26b-a4b-q4/pi-edit-guard-b6-change-then-revert.json.
+export const b6TrailingNewline: BenchmarkScenario = {
+  id: "b6-change-then-revert",
+  fileName: "b6.ts",
+  fixture: "aaa\nbbb\nccc\nddd\n",
+  drifted: "aaa\nbbb\nccc\nddd\n",
+  agentEdit: { oldText: "bbb\nccc\nddd", newText: "B\nD\n" },
+  traceRef: "gemma-4-26b-a4b-q4/pi-edit-guard-b6-change-then-revert.json",
+};
+
+// Follow-up edit that writes back the stale pre-format 2-space view after a
+// correct 4-space fix; whitespace-tolerant matching applies it and
+// un-formats the file. The harness scores applied-wrong.
+// Trace: deepseek-v4.1-flash/pi-edit-guard-formatter-drift.json (2nd edit).
+export const formatterDriftWriteback: BenchmarkScenario = {
+  id: "formatter-drift",
+  fileName: "formatter-drift.ts",
+  fixture: formatterDriftExpected,
+  drifted: formatterDriftExpected,
+  agentEdit: {
+    oldText:
+      "    const host = opts.host;\n    const port = opts.port ?? 9090;\n    return { host, port };",
+    newText:
+      "  const host = opts.host;\n  const port = opts.port ?? 9090;\n  return { host, port };",
+  },
+  traceRef: "deepseek-v4.1-flash/pi-edit-guard-formatter-drift.json",
+};

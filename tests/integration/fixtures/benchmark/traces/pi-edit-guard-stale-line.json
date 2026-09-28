@@ -1,0 +1,61 @@
+{
+ "modelId": "gemma-4-26b-a4b-q4",
+ "contenderId": "pi-edit-guard",
+ "contenderVersion": "0.1.5",
+ "scenarioId": "stale-line",
+ "task": "Modify stale-line.ts in the current working directory. Replace the line containing 'bbb' with exactly one line: BBB. Use the provided tools.",
+ "startedAt": "2026-09-23T09:04:51.154Z",
+ "durationMs": 6965,
+ "tokensIn": 3587,
+ "tokensOut": 167,
+ "costUsd": 0,
+ "pass": false,
+ "outcome": "applied",
+ "failureKind": "silent-wrong-line",
+ "readFirst": true,
+ "editedBlind": false,
+ "actualContent": "aaa\nBBB-external\nccc\n",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n- read: Read file contents\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- undo: Revert the most recent edit-tool change on a file\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\nUse read to examine files instead of cat or sed.\nUse edit for precise changes (edits[].oldText must match exactly)\nWhen changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\nEach edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\nKeep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\nIf edits[].oldText appears in more than one place, add an anchor: text copied verbatim from the file immediately above or below the lines being replaced — a heading, comment, or distinctive line. The anchor identifies which copy to change, so oldText can stay short and exact.\nFor renames where the same text appears in multiple places, set replaceAll: true to replace every occurrence in the file.\nWhen your last edit to a file turns out wrong, use undo to take it back instead of hand-reverting or rewriting the file.\n\nCurrent working directory: /tmp/pi-llm-bench-lamXlR/pi-edit-guard-stale-line"
+  },
+  {
+   "role": "user",
+   "content": "Modify stale-line.ts in the current working directory. Replace the line containing 'bbb' with exactly one line: BBB. Use the provided tools."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Okay, I understand the task. I need to modify `stale-line.ts` in the current working directory. I need to replace the line containing 'bbb' with exactly one line: 'BBB'.\n\nFirst, I'll list the files in the current directory to make sure `stale-line.ts` exists.",
+   "toolCalls": [
+    {
+     "id": "66zcw06pgtldXfUbMTvrWM5xwaz3qKMk",
+     "name": "read",
+     "arguments": "{\"path\":\"stale-line.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "66zcw06pgtldXfUbMTvrWM5xwaz3qKMk",
+   "content": "aaa\nbbb\nccc\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "fpLNnYsSSa3zFtpvkJNeqOF2nXZ192QX",
+     "name": "edit",
+     "arguments": "{\"edits\":[{\"newText\":\"BBB\",\"oldText\":\"bbb\"}],\"path\":\"stale-line.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "fpLNnYsSSa3zFtpvkJNeqOF2nXZ192QX",
+   "content": "Successfully replaced 1 block(s) in stale-line.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 aaa\n-2 bbb-external\n+2 BBB-external\n 3 ccc"
+  }
+ ]
+}

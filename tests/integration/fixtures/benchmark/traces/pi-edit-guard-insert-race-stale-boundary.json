@@ -1,0 +1,79 @@
+{
+ "modelId": "deepseek-v4.1-flash",
+ "contenderId": "pi-edit-guard",
+ "contenderVersion": "0.1.5",
+ "scenarioId": "insert-race-stale-boundary",
+ "task": "Modify insert-race.ts in the current working directory. Insert exactly two lines 'BB1' and 'BB2' immediately after the line containing 'bbb'; the line 'bbb' itself must stay. Use the provided tools.",
+ "startedAt": "2026-09-23T05:38:28.327Z",
+ "durationMs": 12157,
+ "tokensIn": 6521,
+ "tokensOut": 496,
+ "costUsd": 0.00127575,
+ "pass": false,
+ "outcome": "applied",
+ "failureKind": "silent-wrong-line",
+ "readFirst": true,
+ "editedBlind": false,
+ "actualContent": "aaa\nbbb\nBB1\nBB2\nccc\n",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n- read: Read file contents\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- undo: Revert the most recent edit-tool change on a file\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\nUse read to examine files instead of cat or sed.\nUse edit for precise changes (edits[].oldText must match exactly)\nWhen changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\nEach edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\nKeep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\nIf edits[].oldText appears in more than one place, add an anchor: text copied verbatim from the file immediately above or below the lines being replaced — a heading, comment, or distinctive line. The anchor identifies which copy to change, so oldText can stay short and exact.\nFor renames where the same text appears in multiple places, set replaceAll: true to replace every occurrence in the file.\nWhen your last edit to a file turns out wrong, use undo to take it back instead of hand-reverting or rewriting the file.\n\nCurrent working directory: /tmp/pi-llm-bench-fCpkc4/pi-edit-guard-insert-race-stale-boundary"
+  },
+  {
+   "role": "user",
+   "content": "Modify insert-race.ts in the current working directory. Insert exactly two lines 'BB1' and 'BB2' immediately after the line containing 'bbb'; the line 'bbb' itself must stay. Use the provided tools."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Let me read the file first.",
+   "toolCalls": [
+    {
+     "id": "call_00_2ryxy7spa1uec778qzrjrq0z",
+     "name": "read",
+     "arguments": "{\"path\": \"/tmp/pi-llm-bench-fCpkc4/pi-edit-guard-insert-race-stale-boundary/insert-race.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_00_2ryxy7spa1uec778qzrjrq0z",
+   "content": "aaa\nbbb\nccc\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "The file has aaa, bbb, ccc. I need to insert BB1 and BB2 immediately after the line containing bbb. Use edit tool.",
+   "toolCalls": [
+    {
+     "id": "call_00_wx3hj4oxb35n7udtw8f3s8bn",
+     "name": "edit",
+     "arguments": "{\"path\": \"/tmp/pi-llm-bench-fCpkc4/pi-edit-guard-insert-race-stale-boundary/insert-race.ts\", \"edits\": [{\"oldText\": \"bbb\\nccc\", \"newText\": \"bbb\\nBB1\\nBB2\\nccc\"}]}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_00_wx3hj4oxb35n7udtw8f3s8bn",
+   "content": "Successfully replaced 1 block(s) in /tmp/pi-llm-bench-fCpkc4/pi-edit-guard-insert-race-stale-boundary/insert-race.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 aaa\n-2 bbb-x\n+2 bbb\n+3 BB1\n+4 BB2\n 3 ccc"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "The diff shows something odd: \"-2 bbb-x\" replaced with \"bbb\". Wait, that suggests the original file had \"bbb-x\" not \"bbb\"? But the read showed \"bbb\". Hmm, the diff output is confusing. Let me re-read the file to verify.\n\nActually the diff says line 2 was \"bbb-x\" and now is \"bbb\". That's strange. Perhaps the file changed between read and edit (race). Let me read again.",
+   "toolCalls": [
+    {
+     "id": "call_00_oscnqlbeczkz34t18iqabbs5",
+     "name": "read",
+     "arguments": "{\"path\": \"/tmp/pi-llm-bench-fCpkc4/pi-edit-guard-insert-race-stale-boundary/insert-race.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_00_oscnqlbeczkz34t18iqabbs5",
+   "content": "aaa\nbbb\nBB1\nBB2\nccc\n"
+  }
+ ]
+}
