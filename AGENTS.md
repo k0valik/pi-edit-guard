@@ -30,6 +30,10 @@ After any change: `pnpm typecheck && pnpm lint`.
 1. **No handrolling.** If pi or `@k0valik/pi-base` exports it, use it.
 2. **Copy verbatim, never rewrite from memory.** Upstream source is ground truth.
 3. **One commit = one testable change.**
+4. **No commit ceremony.** Once code is written and green end to end,
+   commit the finished files as-is (one commit per fix). Never revert
+   working changes to reconstruct red-phase commits, never re-apply the
+   same edits twice, never hunk-split files across commits.
 
 ---
 
