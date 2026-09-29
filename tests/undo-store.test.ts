@@ -14,9 +14,15 @@ import {
 } from "../src/history/store.js";
 import { join } from "node:path";
 
-// Toggle to force fs writes to fail for the undo store (covers both whole-file
-// rewrites and O_APPEND line writes).
-let _forceWriteFailure = false;
+// Toggles to force fs failures for the undo store:
+// - _forceWriteFailure scopes write failures to the compaction tmp write
+//   ("rewrite"), the O_APPEND line write ("append"), or both ("all").
+// - _forceRenameFailure makes renameSync fail with a code-carrying error for
+//   its first `times` calls (Infinity: every call) — the store's rename
+//   retry loop counts these attempts. Reset _renameCalls when re-arming.
+let _forceWriteFailure: false | "rewrite" | "append" | "all" = false;
+let _forceRenameFailure: false | { code: string; times: number } = false;
+let _renameCalls = 0;
 
 // Test sandbox: all fixtures live under a temp dir, never the real
 // global pi agent dir.
@@ -50,16 +56,26 @@ vi.mock("node:fs", async () => {
   return {
     ...actual,
     writeFileSync: (...args: any[]) => {
-      if (_forceWriteFailure) {
+      if (_forceWriteFailure === "rewrite" || _forceWriteFailure === "all") {
         throw new Error("EACCES: permission denied");
       }
       return (actual as any).writeFileSync(...args);
     },
     writeSync: (...args: any[]) => {
-      if (_forceWriteFailure) {
+      if (_forceWriteFailure === "append" || _forceWriteFailure === "all") {
         throw new Error("EACCES: permission denied");
       }
       return (actual as any).writeSync(...args);
+    },
+    renameSync: (...args: any[]) => {
+      if (_forceRenameFailure !== false && _renameCalls < _forceRenameFailure.times) {
+        _renameCalls += 1;
+        throw Object.assign(
+          new Error(`${_forceRenameFailure.code}: operation not permitted, rename`),
+          { code: _forceRenameFailure.code },
+        );
+      }
+      return (actual as any).renameSync(...args);
     },
   };
 });
@@ -363,9 +379,131 @@ describe("createUndoStore", () => {
   });
 });
 
+describe("eviction failure handling", () => {
+  /** Store with a budget small enough that every put triggers eviction. */
+  function overBudgetStore(file: string) {
+    const storePath = sandboxPath(file);
+    return { storePath, store: createUndoStore(storePath, { maxBytes: 600 }) };
+  }
+
+  it("retries a transient rename lock and recovers mid-backoff", () => {
+    const { store } = overBudgetStore("retry-recover.jsonl");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    _forceRenameFailure = { code: "EPERM", times: 2 };
+    _renameCalls = 0;
+    try {
+      store.put("/tmp/a.txt", makeRecord({ content: "x".repeat(700) }));
+
+      expect(store.get("/tmp/a.txt")!.content).toBe("x".repeat(700));
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      _forceRenameFailure = false;
+      _renameCalls = 0;
+      warn.mockRestore();
+    }
+  });
+
+  it("persistent rename lock: one deduped size-vs-budget warning across puts", () => {
+    const { store } = overBudgetStore("persistent-lock.jsonl");
+    _forceRenameFailure = { code: "EPERM", times: Infinity };
+    _renameCalls = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      store.put("/tmp/a.txt", makeRecord({ content: "x".repeat(700) })); // ~750 ms backoff
+      store.put("/tmp/b.txt", makeRecord({ content: "y".repeat(700) })); // ~750 ms backoff
+
+      const evictionWarnings = warn.mock.calls.filter((args) =>
+        String(args[0]).includes("Undo store eviction failed"),
+      );
+      expect(evictionWarnings).toHaveLength(1);
+      const message = String(evictionWarnings[0][0]);
+      expect(message).toContain("over the 600-byte budget");
+      expect(message).toContain("undo store is ");
+      expect(message).toContain("EPERM");
+    } finally {
+      _forceRenameFailure = false;
+      _renameCalls = 0;
+      warn.mockRestore();
+    }
+  });
+
+  it("the eviction warning resets after a successful eviction", () => {
+    const { store } = overBudgetStore("warn-reset.jsonl");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnings = () => warn.mock.calls.filter((args) => String(args[0]).includes("failed"));
+    try {
+      _forceWriteFailure = "rewrite"; // tmp-write stage: instant, no backoff
+      store.put("/tmp/a.txt", makeRecord({ content: "x".repeat(700) }));
+      expect(warnings()).toHaveLength(1);
+
+      _forceWriteFailure = false; // successful eviction clears the episode
+      store.put("/tmp/b.txt", makeRecord({ content: "y".repeat(700) }));
+      expect(warnings()).toHaveLength(1);
+
+      _forceWriteFailure = "rewrite"; // a new breakage warns again
+      store.put("/tmp/c.txt", makeRecord({ content: "z".repeat(700) }));
+      expect(warnings()).toHaveLength(2);
+    } finally {
+      _forceWriteFailure = false;
+      warn.mockRestore();
+    }
+  });
+
+  it("a tmp-write failure is not mislabeled as an eviction failure", () => {
+    const { store } = overBudgetStore("tmp-write-stage.jsonl");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    _forceWriteFailure = "rewrite";
+    try {
+      store.put("/tmp/a.txt", makeRecord({ content: "x".repeat(700) }));
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("compaction write failed");
+      expect(message).not.toContain("Undo store eviction failed");
+    } finally {
+      _forceWriteFailure = false;
+      warn.mockRestore();
+    }
+  });
+
+  it("saveUndo still reports persisted: true when only eviction failed", async () => {
+    const storePath = sandboxPath("evict-nonfatal.jsonl");
+    const store = createUndoStore(storePath, { maxBytes: 600 });
+    store.put("/tmp/seed.txt", makeRecord({ content: "x".repeat(700) })); // over budget
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    _forceRenameFailure = { code: "EPERM", times: Infinity };
+    _renameCalls = 0;
+    try {
+      const result = await saveUndo(
+        "/tmp/x.txt",
+        {
+          content: "pre",
+          bom: "",
+          originalEnding: "\n",
+          resultContent: "post",
+          encoding: "utf-8",
+        },
+        storePath,
+        { maxBytes: 600 },
+      );
+
+      expect(result.persisted).toBe(true);
+      expect(getUndo("/tmp/x.txt", storePath)!.content).toBe("pre");
+      expect(
+        warn.mock.calls.filter((args) => String(args[0]).includes("Undo store eviction failed")),
+      ).toHaveLength(1);
+    } finally {
+      _forceRenameFailure = false;
+      _renameCalls = 0;
+      warn.mockRestore();
+    }
+  });
+});
+
 describe("saveUndo", () => {
   it("reports failure when the store cannot be written", async () => {
-    _forceWriteFailure = true;
+    _forceWriteFailure = "all";
     try {
       const result = await saveUndo("/tmp/x.txt", {
         content: "a",
