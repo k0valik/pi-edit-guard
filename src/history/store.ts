@@ -44,6 +44,7 @@ import {
   writeSync,
 } from "node:fs";
 import { getPiAgentDir } from "../../packages/pi-base/src/paths.js";
+import { renameWithRetrySync } from "../shared/atomic-write.js";
 
 export interface UndoRecord {
   content: string; // LF-normalized, BOM-free pre-edit content
@@ -145,6 +146,16 @@ function serializeTombstone(path: string): string {
   return JSON.stringify({ path, record: null } satisfies StoreLine) + "\n";
 }
 
+/**
+ * Once-per-breakage eviction-warning dedup, keyed by store path. Module-level
+ * because getStore() creates a fresh store instance per saveUndo call when
+ * options are passed (the edit pipeline always passes them), so a
+ * per-instance flag would never dedupe across edits. An entry means
+ * "eviction is currently broken and the user has been told"; put()/delete()
+ * clear it after a successful eviction, so the next breakage warns again.
+ */
+const evictionWarned = new Map<string, boolean>();
+
 export function createUndoStore(path?: string, options?: UndoStoreOptions): UndoStore {
   const storePath = path ?? defaultStorePath();
   const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -219,13 +230,16 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
   /**
    * Full rewrite from a freshly-read view (readAll already folded the dump
    * to last-line-per-path winners, tombstones applied). Only FIFO eviction
-   * and clear() rewrite — puts and deletes are pure appends — so the shared
-   * rename target is touched rarely. Two processes renaming concurrently
-   * remain last-writer-wins for the whole file (the known residual race;
-   * fixing it needs real file locking, which is out of scope). The staging
-   * file is unique per process so simultaneous compactions cannot clobber
-   * each other's temp write; a hard kill mid-rewrite may leave one behind,
-   * which is harmless.
+   * rewrites — puts and deletes are pure appends — so the shared rename
+   * target is touched rarely. Two processes renaming concurrently remain
+   * last-writer-wins for the whole file (the known residual race; fixing it
+   * needs real file locking, which is out of scope). The rename retries
+   * transient Windows lock errors through the shared backoff
+   * (renameWithRetrySync, 750 ms worst case), which widens this race window:
+   * records appended by a concurrent session during the backoff are
+   * overwritten by the staged body. The staging file is unique per process
+   * so simultaneous compactions cannot clobber each other's temp write; a
+   * hard kill mid-rewrite may leave one behind, which is harmless.
    */
   function rewrite(entries: Map<string, UndoRecord>): void {
     ensureDir();
@@ -238,11 +252,11 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       writeFileSync(tmpPath, body, "utf-8");
     } catch (writeErr) {
       const message = sanitizeError(writeErr);
-      console.error("Failed to write undo store:", message);
+      (message as Error & { undoStoreStage?: string }).undoStoreStage = "tmp-write";
       throw message;
     }
     try {
-      renameSync(tmpPath, storePath);
+      renameWithRetrySync(renameSync, tmpPath, storePath);
     } catch (renameErr) {
       try {
         if (existsSync(tmpPath)) unlinkSync(tmpPath);
@@ -250,7 +264,7 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
         // ignore cleanup errors
       }
       const message = sanitizeError(renameErr);
-      console.error("Failed to write undo store:", message);
+      (message as Error & { undoStoreStage?: string }).undoStoreStage = "rename";
       throw message;
     }
   }
@@ -289,7 +303,40 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
     }
 
     const kept = new Map(sized.slice(keepFrom).map((entry) => [entry.key, entry.record]));
-    rewrite(kept);
+    try {
+      rewrite(kept);
+    } catch (error) {
+      const decorated = error as Error & { undoStoreSize?: number; undoStoreMaxBytes?: number };
+      decorated.undoStoreSize = size;
+      decorated.undoStoreMaxBytes = maxBytes;
+      throw decorated;
+    }
+  }
+
+  /**
+   * Single deduped eviction-failure warn site for the put()/delete() catches.
+   * Stage-aware: a rename-stage failure leads with the size-vs-budget
+   * eviction line; a tmp-write-stage failure leads with a write-failure line
+   * (a temp-write problem is not an eviction failure).
+   */
+  function warnEvictionFailure(error: unknown): void {
+    if (evictionWarned.get(storePath)) return;
+    evictionWarned.set(storePath, true);
+    const err = error as Error & {
+      undoStoreStage?: string;
+      undoStoreSize?: number;
+      undoStoreMaxBytes?: number;
+    };
+    const detail = err instanceof Error ? err.message : String(err);
+    if (err.undoStoreStage === "tmp-write") {
+      console.warn(
+        `Undo store compaction write failed (eviction skipped; further failures are silent until the next successful eviction): ${detail}`,
+      );
+    } else {
+      console.warn(
+        `Undo store eviction failed: undo store is ${err.undoStoreSize ?? "unknown"} bytes, over the ${err.undoStoreMaxBytes ?? "unknown"}-byte budget; further eviction failures are silent until the next successful eviction. Error: ${detail}`,
+      );
+    }
   }
 
   /**
@@ -347,9 +394,10 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       appendLine(serializeLine(path, record));
       try {
         evictOversize();
+        evictionWarned.delete(storePath);
       } catch (error) {
         // Eviction is best-effort hygiene; the append itself succeeded.
-        console.warn("Undo store eviction failed:", sanitizeError(error));
+        warnEvictionFailure(error);
       }
     },
 
@@ -361,9 +409,10 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       appendLine(serializeTombstone(path));
       try {
         evictOversize();
+        evictionWarned.delete(storePath);
       } catch (error) {
         // Eviction is best-effort hygiene; the tombstone itself succeeded.
-        console.warn("Undo store eviction failed:", sanitizeError(error));
+        warnEvictionFailure(error);
       }
     },
   };
