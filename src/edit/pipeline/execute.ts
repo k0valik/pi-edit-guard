@@ -53,6 +53,7 @@ import {
   spliceOntoRaw,
 } from "../patching/raw-splice.js";
 import { resolveToCwd } from "../../shared/paths.js";
+import { RENAME_RETRY_DELAYS_MS, isTransientLockError } from "../../shared/atomic-write.js";
 import { stripBom, detectLineEnding, normalizeNewlines } from "../text.js";
 import { getConfig } from "../../config/settings.js";
 import type { AppliedEdit, EditDiagnostic, FailedEdit, NearMissAlternative } from "../model.js";
@@ -291,13 +292,6 @@ function preserveMode(
  * result, so the bytes are correct, and the caller's post-write re-read still
  * verifies them. The fallback is not atomic, so it is reported as a warning.
  */
-const RENAME_RETRY_DELAYS_MS = [50, 100, 200, 400];
-const TRANSIENT_LOCK_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
-
-function isTransientLockError(err: unknown): boolean {
-  const code = (err as { code?: string } | null | undefined)?.code;
-  return typeof code === "string" && TRANSIENT_LOCK_CODES.has(code);
-}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
