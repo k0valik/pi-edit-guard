@@ -9,15 +9,18 @@
  * because it only needs write access. Those locks normally clear within a few
  * hundred milliseconds, so retry with a short backoff.
  *
- * Two consumers, two shapes:
- * - The undo store (src/history/store.ts) calls renameWithRetrySync: it is
- *   fully synchronous, so the backoff sleeps with a bounded Atomics.wait, and
- *   it has NO direct-write fallback — a failed compaction must never trade
- *   the store's crash-safety property (atomic rename) for availability.
+ * Consumers:
  * - The edit pipeline (src/edit/pipeline/execute.ts) keeps its own async
  *   setTimeout wrapper with a direct-write fallback; it imports only the
  *   constants and the classifier. Adopting the sync core there would block
  *   the edit path's event loop up to 750 ms.
+ * - The undo store (src/history/store.ts) no longer renames — compaction is
+ *   lock-coordinated and in place (src/shared/file-lock.ts) — so
+ *   renameWithRetrySync's remaining consumer is tests/atomic-write.test.ts;
+ *   it is retained as defense-in-depth for any residual rename.
+ * - src/shared/file-lock.ts imports sleepSync only: its acquire backoff uses
+ *   LOCK_RETRY_DELAYS_MS, deliberately separate from RENAME_RETRY_DELAYS_MS
+ *   so lock-wait retuning cannot shift the edit path's 750 ms worst case.
  */
 
 /** Backoff schedule between rename attempts: 50/100/200/400 ms (750 ms total). */
@@ -66,7 +69,18 @@ export function renameWithRetrySync(
   throw lastError;
 }
 
-/** Blocking sleep for synchronous callers; Atomics.wait returns "timed-out" after ms. */
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/**
+ * Shared blocking-sleep slot, hoisted to module level so a backoff loop does
+ * not allocate a SharedArrayBuffer per sleep. The 0-value slot is never
+ * written, so Atomics.wait always times out — a pure blocking sleep.
+ */
+const sleepSlot = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * Blocking sleep for synchronous callers; Atomics.wait returns "timed-out"
+ * after ms. Exported for src/shared/file-lock.ts (reuse, don't duplicate the
+ * never-written-slot idiom).
+ */
+export function sleepSync(ms: number): void {
+  Atomics.wait(sleepSlot, 0, 0, ms);
 }

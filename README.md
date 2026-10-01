@@ -41,7 +41,7 @@ All numbers are reproducible with `pnpm replay`, `pnpm replay:live`, and `pnpm s
 | Tool   | Description                                                                                                                                                                                                                                                        |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `edit` | Overrides the built-in `edit` tool (extension tools win by name). Argument repair, 14-pass tiered match chain, anchor windows, auto-expand, partial-apply handling, coherence/corruption checks, byte-preserving atomic writes. Killswitch: `editOverrideEnabled`. |
-| `undo` | Reverts the most recent `edit`-tool change on a file. Backed by an append-only JSONL store that survives sessions, bounded by FIFO eviction (`undoMaxBytes`). One snapshot per file - last edit wins. Killswitch: `undoEnabled`.                                   |
+| `undo` | Reverts the most recent `edit`-tool change on a file. Backed by a JSONL store that survives sessions, bounded by FIFO eviction (`undoMaxBytes`). One snapshot per file - last edit wins. Killswitch: `undoEnabled`.                                                |
 
 ## Commands
 
@@ -263,7 +263,7 @@ Intercepts `write` calls: the first attempt per file per session to overwrite an
 
 The `undo` tool reverts the most recent `edit`-tool change on a file. Gated by `undoEnabled`.
 
-- **Store**: append-only JSONL dump - one line per record, deletions append tombstones, last line per path wins. Single O_APPEND writes keep concurrent sessions from clobbering each other; reads are stateless (the dump is re-read every operation); torn/malformed lines are skipped, never fatal.
+- **Store**: JSONL dump - one line per record, deletions append tombstones, last line per path wins. Appends are O_APPEND writes serialized by an O_EXCL advisory lock (`src/shared/file-lock.ts`), so concurrent sessions never clobber each other's bytes and no append can be destroyed by a compaction mid-write; compaction truncates + rewrites in place under the same lock. Reads are stateless (the dump is re-read every operation); torn/malformed lines are skipped, never fatal.
 - **Location**: `PI_UNDO_STORE_PATH` if set, else `<pi-agent-dir>/pi-better-toolcalls-undo-store.jsonl`, else `~/.local/state/pi-better-toolcalls/undo-store.jsonl`.
 - **Bounds**: FIFO eviction at `undoMaxBytes` (default 5 MB, clamped 64 KB - 50 MB); oldest-updated records dropped first, newest always kept. Records survive sessions by design.
 - **Capture**: the `edit` tool persists the pre-edit snapshot (LF-normalized + raw bytes + BOM + line ending + encoding + session/project provenance) only when content actually changed; persistence failure throws `[E_UNDO_UNAVAILABLE]`.
