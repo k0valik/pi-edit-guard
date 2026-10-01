@@ -68,7 +68,8 @@ registry injected into the edit tool) → `registerPreflight()` → `registerOve
 and flushes pre-session telemetry; `input` / `agent_settled` / `agent_end` / `session_before_tree` /
 `session_before_fork` / `session_before_compact` flush as pure observers (return `undefined` — owning a decision
 there would hijack turn/branch/compaction handling); `session_shutdown` flushes and clears the repair lifecycle.
-The undo store deliberately survives sessions (FIFO-evicted instead); stormbreaker windows are not cleared.
+The undo store deliberately survives sessions (FIFO-evicted instead, lock-coordinated across processes);
+stormbreaker windows are not cleared.
 
 ### 2.2 Tool layer (`src/platform/tools/edit.ts`)
 
@@ -388,10 +389,15 @@ tool's entire window. Counters: `loopsBroken` / `errorsEnhanced`.
 
 ## 9 — Undo store (`platform/tools/undo.ts` + `history/store.ts`)
 
-Gated by `undoEnabled`. Append-only JSONL dump (`pi-better-toolcalls-undo-store.jsonl`) — one `{ path, record }`
-line per put, `null`-record tombstones for deletes; last line per path wins. Single `O_APPEND` writes with looped
-`writeSync` (short-write safe) keep concurrent sessions from interleaving partial lines; reads are stateless
-(dump re-read per operation); malformed/torn lines skipped. Location: `PI_UNDO_STORE_PATH` env, else
+Gated by `undoEnabled`. JSONL dump (`pi-better-toolcalls-undo-store.jsonl`) — one `{ path, record }`
+line per put, `null`-record tombstones for deletes; last line per path wins. Appends are `O_APPEND` writes with
+looped `writeSync` (short-write safe) serialized by an O_EXCL advisory lock (`src/shared/file-lock.ts`), so
+concurrent sessions never interleave partial lines and no append can be destroyed by a compaction mid-write.
+Compaction is lock-coordinated and in place: under the lock the dump is re-read in full, folded, staged to a tmp,
+and the staged body is truncated + rewritten in place — no rename on the hot path
+(the Windows `MoveFileEx` EPERM class against a held file cannot recur). Reads are lock-free (a read during
+another process's truncate+write window can transiently miss middle records — a retryable `[E_UNDO_STALE]`,
+never destructive); malformed/torn lines skipped. Location: `PI_UNDO_STORE_PATH` env, else
 `<pi-agent-dir>/…`, else `~/.local/state/pi-better-toolcalls/undo-store.jsonl`. Bounds: FIFO eviction at
 `undoMaxBytes` (default 5 MB, clamped 64 KB–50 MB); oldest-`updatedAt` dropped first, newest always kept. Records
 survive sessions by design. `saveUndo()` stores LF-normalized + raw pre-edit content, BOM, line ending, encoding,
@@ -430,8 +436,8 @@ unknown remains. Filename: `edit-guard-config.json`.
 - **Encoding and line endings** flow through one normalized space (LF, BOM-stripped) for matching and a raw space
   for disk; `raw-splice` reunites them under O(n) offset mapping, including lone-`\r` vs `\r\n` disambiguation.
 - **Concurrency** is serialized per file via pi's `withFileMutationQueue` around both the edit executor and the
-  undo tool; the undo store uses `O_APPEND` under looped `writeSync` so concurrent sessions do not interleave
-  partial lines.
+  undo tool; the undo store additionally coordinates across processes with its own O_EXCL advisory lock
+  (`src/shared/file-lock.ts`) — `withFileMutationQueue` is per-process and per-target-file, never store-level.
 - **Partial application** is explicit: `resolveBlocks` collects every error (no early exit) and Pass 2 re-resolves
   not-found blocks against post-Pass1 content; `applyEdits` verifies `result.slice(start, end) === match.actual`
   before splicing and distinguishes already-applied from true no-ops.
@@ -496,7 +502,7 @@ src/
     workspace/
       advisory.ts           # getOutsideCwdAdvisory() — non-blocking outside-cwd notice (owner-aware)
   history/
-    store.ts                # JSONL append-only undo dump (FIFO-bounded, session-surviving) + saveUndo()
+    store.ts                # JSONL undo dump (lock-coordinated in-place compaction, FIFO-bounded, session-surviving) + saveUndo()
   platform/
     tools/
       edit.ts               # `edit` override — prepareArguments + execute, native parity

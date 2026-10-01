@@ -1,30 +1,35 @@
 /**
- * JSONL-backed undo dump store — single-level per-file undo via append-only log.
+ * JSONL-backed undo dump store — single-level per-file undo via an on-disk log.
  *
  * Format: NDJSON, one line per `{"path", "record"}`; deletions append a
  * tombstone (`"record": null`). Last line for a path wins (single-level
- * per-file undo — a deeper history would need a different layout). Parallel-safe:
- * puts/deletes are single O_APPEND writes, so concurrent sessions never
- * clobber each other's bytes and no file locking is required.
+ * per-file undo — a deeper history would need a different layout). Appends
+ * are O_APPEND writes under the O_EXCL store lock (src/shared/file-lock.ts),
+ * so concurrent appenders never clobber each other's bytes.
  *
  * Lifecycle: records survive sessions by design — there is no shutdown
- * cleanup; the store is the cross-session memory. Growth is bounded by FIFO
- * eviction at `maxBytes` (oldest-updated first, triggered only on put/delete —
- * reads never evict). Re-parsing cost stays proportional to the configured
- * budget, so the budget also bounds read latency.
+ * cleanup; the store is the cross-session memory. Concurrent pi sessions
+ * share one store file, which is why writes are coordinated by an O_EXCL
+ * advisory lock (src/shared/file-lock.ts) rather than trusting O_APPEND
+ * alone. Growth is bounded by FIFO eviction at `maxBytes` (oldest-updated
+ * first, triggered only on put/delete — reads never evict). Re-parsing cost
+ * stays proportional to the configured budget, so the budget also bounds
+ * read latency.
  *
  * Resilience / why stateless:
  * - Malformed/torn lines (crash mid-write) are skipped line-by-line, never
  *   fatal — the log tolerates a torn tail and the next append prepends a
- *   newline separator if needed (see appendLine).
+ *   newline separator if needed (see appendLine). This covers partial
+ *   APPENDS at EOF only: a compaction that dies inside its truncate+write
+ *   window leaves a valid prefix missing middle records (the documented
+ *   residual; see evictOversize).
  * - Every operation re-reads the file from disk (stateless) instead of
- *   trusting an in-memory cache. Compaction (eviction/rewrite) therefore
- *   works from the current on-disk state and cannot drop records appended by
- *   a concurrent session after this instance last looked. Caching would
- *   re-introduce the lost-update race that the append-only design was chosen
- *   to avoid.
+ *   trusting an in-memory cache. Compaction re-reads and folds the full
+ *   body inside the lock, so records written by concurrent sessions are
+ *   never dropped by a stale view. Caching would re-introduce the
+ *   lost-update race the lock exists to close.
  *
- * Pure core — no pi imports (node:fs/path/os).
+ * Pure core — no pi imports (node:fs/path/os/worker_threads).
  */
 
 import { homedir } from "node:os";
@@ -33,17 +38,19 @@ import {
   closeSync,
   existsSync,
   fstatSync,
+  ftruncateSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
-  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
+import { threadId } from "node:worker_threads";
 import { getPiAgentDir } from "../../packages/pi-base/src/paths.js";
+import { StolenLock, withFileLock } from "../shared/file-lock.js";
 
 export interface UndoRecord {
   content: string; // LF-normalized, BOM-free pre-edit content
@@ -100,7 +107,8 @@ export function clampMaxBytes(value: unknown): number {
  * Create a JSONL-backed undo store. The store path is configurable via
  * `PI_UNDO_STORE_PATH`; otherwise it lives in the pi agent data dir or
  * `~/.local/state/pi-better-toolcalls/`. Operations re-read the dump from
- * disk (stateless); appends are single O_APPEND writes.
+ * disk (stateless); appends are O_APPEND writes under the store lock, and
+ * compaction truncates + rewrites in place under the same lock.
  */
 function defaultStorePath(): string {
   const envPath = process.env.PI_UNDO_STORE_PATH;
@@ -145,6 +153,16 @@ function serializeTombstone(path: string): string {
   return JSON.stringify({ path, record: null } satisfies StoreLine) + "\n";
 }
 
+/**
+ * Once-per-breakage eviction-warning dedup, keyed by store path. Module-level
+ * because getStore() creates a fresh store instance per saveUndo call when
+ * options are passed (the edit pipeline always passes them), so a
+ * per-instance flag would never dedupe across edits. An entry means
+ * "eviction is currently broken and the user has been told"; put()/delete()
+ * clear it after a successful eviction, so the next breakage warns again.
+ */
+const evictionWarned = new Map<string, boolean>();
+
 export function createUndoStore(path?: string, options?: UndoStoreOptions): UndoStore {
   const storePath = path ?? defaultStorePath();
   const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -167,27 +185,13 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
   }
 
   /**
-   * Read the dump from disk and fold it into last-line-per-path winners.
-   * Deliberately stateless: compaction below always works from the current
-   * on-disk state, so records appended by concurrent sessions (other pi
-   * processes share the same store file) are never dropped by a stale
-   * in-memory view.
+   * Fold a raw NDJSON body into last-line-per-path winners: a tombstone
+   * deletes the path, a valid record sets it (last line wins), malformed
+   * or torn lines are skipped and counted. Shared by the lock-free read
+   * path and the under-lock compaction re-read.
    */
-  function readAll(): Map<string, UndoRecord> {
+  function foldBody(raw: string): Map<string, UndoRecord> {
     const entries = new Map<string, UndoRecord>();
-
-    if (!existsSync(storePath)) {
-      return entries;
-    }
-
-    let raw: string;
-    try {
-      raw = readFileSync(storePath, "utf-8");
-    } catch (error) {
-      // Unreadable store — serve an empty view instead of failing the session.
-      console.error("Failed to read undo store:", sanitizeError(error));
-      return entries;
-    }
 
     let malformedLines = 0;
     for (const line of raw.split("\n")) {
@@ -217,19 +221,38 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
   }
 
   /**
-   * Full rewrite from a freshly-read view (readAll already folded the dump
-   * to last-line-per-path winners, tombstones applied). Only FIFO eviction
-   * and clear() rewrite — puts and deletes are pure appends — so the shared
-   * rename target is touched rarely. Two processes renaming concurrently
-   * remain last-writer-wins for the whole file (the known residual race;
-   * fixing it needs real file locking, which is out of scope). The staging
-   * file is unique per process so simultaneous compactions cannot clobber
-   * each other's temp write; a hard kill mid-rewrite may leave one behind,
-   * which is harmless.
+   * Read the dump from disk and fold it into last-line-per-path winners.
+   * Deliberately stateless: compaction below always works from the current
+   * on-disk state, so records appended by concurrent sessions (other pi
+   * processes share the same store file) are never dropped by a stale
+   * in-memory view.
    */
-  function rewrite(entries: Map<string, UndoRecord>): void {
+  function readAll(): Map<string, UndoRecord> {
+    if (!existsSync(storePath)) {
+      return new Map<string, UndoRecord>();
+    }
+
+    try {
+      return foldBody(readFileSync(storePath, "utf-8"));
+    } catch (error) {
+      // Unreadable store — serve an empty view instead of failing the session.
+      console.error("Failed to read undo store:", sanitizeError(error));
+      return new Map<string, UndoRecord>();
+    }
+  }
+
+  /**
+   * Stage the serialized folded body to a tmp file unique per thread.
+   * Staging runs UNDER the store lock, from the same under-lock re-read that
+   * feeds the commit, so the tmp always holds the body we are about to write
+   * (it is the salvage copy for the truncate→write crash window); the name
+   * carries pid AND worker threadId because worker threads share a pid —
+   * pid-only names would let one worker's removeTmp unlink another's staged
+   * write. A staging failure is pre-truncate: the store is untouched.
+   */
+  function stageTmp(entries: Map<string, UndoRecord>): string {
     ensureDir();
-    const tmpPath = `${storePath}.${process.pid}.tmp`;
+    const tmpPath = `${storePath}.${process.pid}.${threadId}.tmp`;
     let body = "";
     for (const [key, value] of entries.entries()) {
       body += serializeLine(key, value);
@@ -238,27 +261,70 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       writeFileSync(tmpPath, body, "utf-8");
     } catch (writeErr) {
       const message = sanitizeError(writeErr);
-      console.error("Failed to write undo store:", message);
+      (message as Error & { undoStoreStage?: string }).undoStoreStage = "tmp-write";
       throw message;
     }
+    return tmpPath;
+  }
+
+  function removeTmp(tmpPath: string | undefined): void {
     try {
-      renameSync(tmpPath, storePath);
-    } catch (renameErr) {
-      try {
-        if (existsSync(tmpPath)) unlinkSync(tmpPath);
-      } catch {
-        // ignore cleanup errors
-      }
-      const message = sanitizeError(renameErr);
-      console.error("Failed to write undo store:", message);
-      throw message;
+      if (tmpPath !== undefined && existsSync(tmpPath)) unlinkSync(tmpPath);
+    } catch {
+      // ignore cleanup errors
     }
   }
 
   /**
-   * FIFO eviction: when the dump exceeds `maxBytes`, rewrite without the
-   * oldest-updated records until it fits. At least the newest record is
-   * always kept, even a pathological single record larger than the budget.
+   * FIFO eviction: when the dump exceeds `maxBytes`, compact the store in
+   * place down to the newest-updated suffix that fits. At least the newest
+   * record always survives, even a pathological single record larger than
+   * the budget.
+   *
+   * Protocol (lock-coordinated in-place compaction):
+   * 1. Fast path: stat the store; at or under budget, return without taking
+   *    the lock.
+   * 2. Under the store lock: re-read the FULL body from disk and fold it
+   *    (tombstone-aware, last line wins), stage the folded body to the tmp
+   *    file, re-run the FIFO slice over the folded set, then truncate and
+   *    write the budgeted body in place. No rename on the store path — the
+   *    Windows EPERM class (MoveFileEx needing DELETE access on a file
+   *    another holder keeps open without FILE_SHARE_DELETE) cannot recur.
+   * 3. Release, then unlink the tmp.
+   *
+   * The under-lock full re-read is what makes this loss-free: every byte
+   * that reaches the commit is derived from the state observed while the
+   * lock is held, so no decision rests on a pre-lock snapshot. Nothing can
+   * append while we hold the lock, and an intervening compactor's commit is
+   * always folded in rather than merged against a stale view.
+   *
+   * Self-heal (FRD req 3/6): a commit failure BEFORE the truncate completed
+   * (re-read, staging, the truncate call) leaves the store untouched — no
+   * heal, plain eviction-failure path. A failure AT/AFTER the truncate
+   * retries the commit: same lock token → re-truncate + re-write inside the
+   * same hold (nothing else can land while we hold the lock, and the partial
+   * body is a prefix of the committed body, so the retry is idempotent);
+   * token stolen → release, re-acquire through the normal protocol, and
+   * complete the commit only when the current store is still a byte-prefix
+   * of the committed body — an intervening compaction rewrote it, the
+   * on-disk fold is authoritative, and merging our stale body would
+   * resurrect records they evicted or tombstoned (then the original failure
+   * surfaces via warnEvictionFailure).
+   *
+   * The hold covers the whole re-read + fold + stage + slice + truncate +
+   * write of the body (up to 5 MB): milliseconds to tens of milliseconds, so
+   * it stays far under the lock staleness threshold. Appends block for that
+   * hold — the cost of removing the stale-snapshot loss class.
+   *
+   * Residual risk (FRD req 8): a hard kill between the truncate and the
+   * write completing leaves a truncated store whose dropped records exist
+   * only in the orphaned tmp (~10–50 ms window for a 5 MB store, silently
+   * losing records after the truncation point). This is strictly better
+   * than the removed rename's failure mode — a loud, loss-free EPERM error
+   * — but is silent, which is why it is documented here. The loss is
+   * accepted: the tmp's pid suffix cannot discriminate a pre-truncate
+   * (stale) tmp from a post-truncate (salvage) one, and the marker rename
+   * needed to tell them apart would re-add the rename this design removes.
    */
   function evictOversize(): void {
     let size: number;
@@ -269,15 +335,97 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
     }
     if (size <= maxBytes) return;
 
-    // Re-read from disk (not a cached view) so records appended by concurrent
-    // sessions participate in the FIFO ordering instead of being dropped.
-    const sized = [...readAll().entries()].map(([key, record]) => ({
+    let tmpPath: string | undefined;
+    let committedBody: string | undefined;
+
+    try {
+      withFileLock(storePath, (handle) => {
+        // Full re-read under the lock, strict about the read itself: serving
+        // the swallowed-error empty view here would truncate the store to
+        // nothing on a transient read failure. A read failure therefore
+        // propagates as a pre-truncate failure — store untouched.
+        const staged = foldBody(readFileSync(storePath, "utf-8"));
+        tmpPath = stageTmp(staged);
+        committedBody = serializeBody(sliceToBudget(staged));
+        try {
+          truncateAndWrite(committedBody);
+        } catch (error) {
+          const truncated = (error as { undoStoreTruncated?: boolean }).undoStoreTruncated === true;
+          if (!truncated) {
+            throw error; // pre-truncate: store untouched, nothing to heal
+          }
+          if (!handle.isCurrent()) {
+            throw new StolenLock(`${storePath}.lock`);
+          }
+          // Same token, still ours: one idempotent in-hold retry.
+          truncateAndWrite(committedBody);
+        }
+      });
+      removeTmp(tmpPath);
+    } catch (error) {
+      removeTmp(tmpPath);
+      if (error instanceof StolenLock && committedBody !== undefined) {
+        let healed = false;
+        const body = committedBody;
+        try {
+          withFileLock(storePath, () => {
+            const current = readFileSync(storePath, "utf-8");
+            if (body.startsWith(current)) {
+              truncateAndWrite(body);
+              healed = true;
+            }
+          });
+        } catch {
+          // re-acquire or re-write failed: surface the original failure
+        }
+        if (healed) {
+          return;
+        }
+      }
+      // Classify on the RAW error (sanitizeError drops custom properties),
+      // then surface the sanitized form with the stage/size decoration
+      // re-applied — the <undo-store> path redaction applies to lock
+      // acquire-exhaustion and StolenLock messages alike.
+      const raw = error as Error & { lockPath?: string; undoStoreStage?: string };
+      const surfaced = sanitizeError(raw) as Error & {
+        undoStoreStage?: string;
+        undoStoreSize?: number;
+        undoStoreMaxBytes?: number;
+      };
+      if (raw.lockPath && !(error instanceof StolenLock) && !raw.undoStoreStage) {
+        surfaced.undoStoreStage = "lock-acquire";
+      } else if (raw.undoStoreStage) {
+        surfaced.undoStoreStage = raw.undoStoreStage;
+      }
+      surfaced.undoStoreSize = size;
+      surfaced.undoStoreMaxBytes = maxBytes;
+      throw surfaced;
+    }
+  }
+
+  /** Serialize a folded/kept map to the newline-terminated NDJSON body. */
+  function serializeBody(entries: Map<string, UndoRecord>): string {
+    let body = "";
+    for (const [key, value] of entries.entries()) {
+      body += serializeLine(key, value);
+    }
+    return body;
+  }
+
+  /**
+   * FIFO slice over the folded set: per-line byte cost, ascending updatedAt,
+   * keep the newest suffix that fits; at least the newest record survives.
+   * Byte accounting runs over the set the under-lock fold produced, so a
+   * replace that shrinks a kept record is recomputed rather than patched
+   * incrementally.
+   */
+  function sliceToBudget(entries: Map<string, UndoRecord>): Map<string, UndoRecord> {
+    const sized = [...entries.entries()].map(([key, record]) => ({
       key,
       record,
       bytes: Buffer.byteLength(serializeLine(key, record), "utf-8"),
     }));
     sized.sort((a, b) => a.record.updatedAt - b.record.updatedAt);
-
     let total = sized.reduce((sum, entry) => sum + entry.bytes, 0);
     let keepFrom = 0;
     while (keepFrom < sized.length && total > maxBytes) {
@@ -287,34 +435,26 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
     if (keepFrom >= sized.length) {
       keepFrom = sized.length - 1;
     }
-
-    const kept = new Map(sized.slice(keepFrom).map((entry) => [entry.key, entry.record]));
-    rewrite(kept);
+    return new Map(sized.slice(keepFrom).map((entry) => [entry.key, entry.record]));
   }
 
   /**
-   * Append one serialized record. O_APPEND semantics mean concurrent writers
-   * never overwrite each other's bytes. fs.writeSync may short-write, so the
-   * buffer is written in a loop until complete. If an existing torn tail
-   * lacks a trailing newline (crashed write), a separator is prepended so
-   * the tail and this record cannot glue into one unparsable line.
+   * Commit the body in place under the lock: open r+ (write access only —
+   * no DELETE access, no rename), truncate to zero, write with the same
+   * short-write loop as appendLine. The body is built entirely from
+   * serializeLine (newline-terminated), so the store ends newline-terminated
+   * and the next append's separator check finds 0x0a. The thrown error
+   * carries undoStoreTruncated: true only when the truncate itself
+   * succeeded — the self-heal decides heal-vs-no-heal on that flag.
    */
-  function appendLine(line: string): void {
-    ensureDir();
+  function truncateAndWrite(body: string): void {
+    const buffer = Buffer.from(body, "utf-8");
     let fd: number | undefined;
+    let truncated = false;
     try {
-      // "a+" (not "a"): the append-only tail check below needs read access;
-      // writes still carry O_APPEND semantics.
-      fd = openSync(storePath, "a+");
-      let payload = line;
-      const size = fstatSync(fd).size;
-      if (size > 0) {
-        const tail = Buffer.alloc(1);
-        if (readSync(fd, tail, 0, 1, size - 1) === 1 && tail[0] !== 0x0a) {
-          payload = "\n" + payload;
-        }
-      }
-      const buffer = Buffer.from(payload, "utf-8");
+      fd = openSync(storePath, "r+");
+      ftruncateSync(fd, 0);
+      truncated = true;
       let offset = 0;
       while (offset < buffer.length) {
         const written = writeSync(fd, buffer, offset, buffer.length - offset);
@@ -325,8 +465,13 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       }
     } catch (error) {
       const message = sanitizeError(error);
-      console.error("Failed to append undo entry:", message);
-      throw message;
+      const tagged = message as Error & {
+        undoStoreStage?: string;
+        undoStoreTruncated?: boolean;
+      };
+      tagged.undoStoreStage = "truncate-write";
+      tagged.undoStoreTruncated = truncated;
+      throw tagged;
     } finally {
       if (fd !== undefined) {
         try {
@@ -335,6 +480,89 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
           // ignore cleanup errors
         }
       }
+    }
+  }
+
+  /**
+   * Single deduped eviction-failure warn site for the put()/delete() catches.
+   * Stage-aware: a tmp-write (staging) failure leads with the write-failure
+   * line — a temp-write problem is not an eviction failure; lock-acquire,
+   * under-lock re-read, and truncate-write failures lead with the
+   * size-vs-budget eviction line (the append succeeded; only hygiene failed).
+   * The rename stage died with the rename path.
+   */
+  function warnEvictionFailure(error: unknown): void {
+    if (evictionWarned.get(storePath)) return;
+    evictionWarned.set(storePath, true);
+    const err = error as Error & {
+      undoStoreStage?: string;
+      undoStoreSize?: number;
+      undoStoreMaxBytes?: number;
+    };
+    const detail = err instanceof Error ? err.message : String(err);
+    if (err.undoStoreStage === "tmp-write") {
+      console.warn(
+        `Undo store compaction write failed (eviction skipped; further failures are silent until the next successful eviction): ${detail}`,
+      );
+    } else {
+      console.warn(
+        `Undo store eviction failed: undo store is ${err.undoStoreSize ?? "unknown"} bytes, over the ${err.undoStoreMaxBytes ?? "unknown"}-byte budget; further eviction failures are silent until the next successful eviction. Error: ${detail}`,
+      );
+    }
+  }
+
+  /**
+   * Append one serialized record under the store lock. O_APPEND semantics
+   * mean concurrent appenders never overwrite each other's bytes; the lock
+   * additionally serializes appends against compaction's rewrite window (a
+   * compactor must not truncate between the tail check and this write — the
+   * record would land at an offset its staged body does not know about and
+   * be destroyed). Appender-vs-appender double-newline is benign (blank
+   * lines are skipped by readAll); appender-vs-compactor is the fatal
+   * hazard. A lock-acquisition failure is an append failure: it propagates
+   * here (persisted: false via saveUndo's catch), never through the
+   * eviction-warning path.
+   */
+  function appendLine(line: string): void {
+    ensureDir();
+    try {
+      withFileLock(storePath, () => {
+        let fd: number | undefined;
+        try {
+          // "a+" (not "a"): the append-only tail check below needs read
+          // access; writes still carry O_APPEND semantics.
+          fd = openSync(storePath, "a+");
+          let payload = line;
+          const size = fstatSync(fd).size;
+          if (size > 0) {
+            const tail = Buffer.alloc(1);
+            if (readSync(fd, tail, 0, 1, size - 1) === 1 && tail[0] !== 0x0a) {
+              payload = "\n" + payload;
+            }
+          }
+          const buffer = Buffer.from(payload, "utf-8");
+          let offset = 0;
+          while (offset < buffer.length) {
+            const written = writeSync(fd, buffer, offset, buffer.length - offset);
+            if (written <= 0) {
+              throw new Error(`short write to undo store (${offset}/${buffer.length} bytes)`);
+            }
+            offset += written;
+          }
+        } finally {
+          if (fd !== undefined) {
+            try {
+              closeSync(fd);
+            } catch {
+              // ignore cleanup errors
+            }
+          }
+        }
+      });
+    } catch (error) {
+      const message = sanitizeError(error);
+      console.error("Failed to append undo entry:", message);
+      throw message;
     }
   }
 
@@ -347,23 +575,26 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       appendLine(serializeLine(path, record));
       try {
         evictOversize();
+        evictionWarned.delete(storePath);
       } catch (error) {
         // Eviction is best-effort hygiene; the append itself succeeded.
-        console.warn("Undo store eviction failed:", sanitizeError(error));
+        warnEvictionFailure(error);
       }
     },
 
     delete(path: string): void {
       // Append-only tombstone instead of a rewrite: deletes stay parallel-safe
-      // exactly like puts (single O_APPEND write, last line wins). The
-      // tombstone is written unconditionally — absence of a prior record
-      // cannot be checked race-free anyway, and a stray tombstone is inert.
+      // exactly like puts (single O_APPEND write under the store lock, last
+      // line wins). The tombstone is written unconditionally — absence of a
+      // prior record cannot be checked race-free anyway, and a stray
+      // tombstone is inert.
       appendLine(serializeTombstone(path));
       try {
         evictOversize();
+        evictionWarned.delete(storePath);
       } catch (error) {
         // Eviction is best-effort hygiene; the tombstone itself succeeded.
-        console.warn("Undo store eviction failed:", sanitizeError(error));
+        warnEvictionFailure(error);
       }
     },
   };
@@ -428,11 +659,19 @@ export async function saveUndo(
     return {
       persisted: false,
       restore: async () => {
-        // Best-effort rollback on failure.
+        // Best-effort rollback on failure. No-op when `previous` is
+        // undefined: reads are lock-free, and a compaction rewrite window
+        // can transiently hide a record that exists. Deleting on an
+        // undefined-but-racy `previous` would tombstone a live record —
+        // the read race made destructive. In the non-race case there is
+        // genuinely nothing to remove (no prior record + failed append),
+        // so the no-op loses nothing. The success-path restore() keeps its
+        // delete-when-undefined behavior (pinned: "restore() deletes entry
+        // when there was no previous").
+        if (previous === undefined) return;
         try {
           const s = getStore(storePath, options);
-          if (previous !== undefined) s.put(path, previous);
-          else s.delete(path);
+          s.put(path, previous);
         } catch (error) {
           console.error("Failed to restore previous undo entry:", error);
         }
@@ -457,6 +696,14 @@ export async function saveUndo(
 /**
  * Load the undo entry for a path (reads the dump from disk, last line wins).
  * Validates the stored line-ending; auto-deletes corrupt entries.
+ *
+ * Reads are lock-free: during a concurrent compaction's truncate+write
+ * window a read can transiently see a valid JSONL prefix missing middle
+ * records — the user-visible effect is one wrong `E_UNDO_STALE`
+ * (src/platform/tools/undo.ts), retryable and never destructive
+ * (auto-delete fires only on a found, line-ending-invalid record; torn
+ * lines fail JSON.parse and are skipped, so a truncated record cannot
+ * trigger a delete of a valid entry).
  */
 export function getUndo(path: string, storePath?: string): UndoRecord | undefined {
   const record = getStore(storePath).get(path);
