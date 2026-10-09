@@ -24,7 +24,7 @@
 export const RENAME_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400];
 
 /** errno codes that clear by waiting: a holder without FILE_SHARE_DELETE. */
-export const TRANSIENT_LOCK_CODES: ReadonlySet<string> = new Set(["EPERM", "EACCES", "EBUSY"]);
+const TRANSIENT_LOCK_CODES: ReadonlySet<string> = new Set(["EPERM", "EACCES", "EBUSY"]);
 
 /**
  * Whether an fs error is a transient Windows rename lock (EPERM/EACCES/EBUSY).
