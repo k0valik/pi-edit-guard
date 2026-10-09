@@ -391,7 +391,10 @@ tool's entire window. Counters: `loopsBroken` / `errorsEnhanced`.
 Gated by `undoEnabled`. Append-only JSONL dump (`pi-better-toolcalls-undo-store.jsonl`) — one `{ path, record }`
 line per put, `null`-record tombstones for deletes; last line per path wins. Single `O_APPEND` writes with looped
 `writeSync` (short-write safe) keep concurrent sessions from interleaving partial lines; reads are stateless
-(dump re-read per operation); malformed/torn lines skipped. Location: `PI_UNDO_STORE_PATH` env, else
+(dump re-read per operation); malformed/torn lines skipped. FIFO compaction stages the full rewrite to a
+per-pid tmp file and renames it atomically into place, retrying transient Windows rename locks
+(EPERM/EACCES/EBUSY) through the shared backoff (`shared/atomic-write.ts`) so the store keeps its crash-safety.
+Location: `PI_UNDO_STORE_PATH` env, else
 `<pi-agent-dir>/…`, else `~/.local/state/pi-better-toolcalls/undo-store.jsonl`. Bounds: FIFO eviction at
 `undoMaxBytes` (default 5 MB, clamped 64 KB–50 MB); oldest-`updatedAt` dropped first, newest always kept. Records
 survive sessions by design. `saveUndo()` stores LF-normalized + raw pre-edit content, BOM, line ending, encoding,
@@ -523,6 +526,7 @@ src/
     enhance.ts              # signature normalization + actionable error rewrites + retry guidance
   shared/
     paths.ts                # resolveToCwd() — tilde/unicode-space/@-prefix/file:// handling (pi port)
+    atomic-write.ts         # Windows rename lock-retry policy (constants + classifier + sync core)
 
 packages/pi-base/            # ConfigManager, settings modal/fields, mocks, shell/path/session utils
 extension.ts                 # backward-compat re-export of src/extension.ts

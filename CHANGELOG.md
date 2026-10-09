@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- undo store: FIFO compaction now stages a full rewrite to a per-pid tmp file and
+  renames it atomically into place, retrying transient Windows rename locks
+  (EPERM/EACCES/EBUSY) through the shared backoff (`shared/atomic-write.ts`,
+  50/100/200/400 ms). Fixes compaction failures when another process holds the
+  store open without `FILE_SHARE_DELETE`; atomic rename (and therefore the
+  store's crash-safety) is preserved. Eviction-failure warnings are deduped per
+  store path, and the integration replay test now sandboxes the undo store so it
+  no longer writes to the real pi agent data dir.
 - `edit`: refuse matches that graft onto externally drifted lines instead of
   silently overwriting the drift (pi-edit-benchmark `b10-duplicate-drift`,
   `b9-boundary-changed`, `insert-race-stale-boundary`):
