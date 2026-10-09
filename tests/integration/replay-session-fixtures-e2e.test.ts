@@ -55,15 +55,26 @@ type ToolDef = {
 let pi: PiMock;
 let tool: ToolDef;
 let dir: string;
+let previousUndoStorePath: string | undefined;
 
 beforeAll(() => {
   pi = createPiMock();
   registerEditTool(pi as unknown as ExtensionAPI);
   tool = pi.tools[0] as unknown as ToolDef;
   dir = mkdtempSync(join(tmpdir(), "edit-guard-replay-e2e-"));
+  // Sandbox the undo store. registerEditTool wires saveUndo(), whose default
+  // path is the real pi agent data dir; without this the replay appends to
+  // (and FIFO-evicts) the developer's real undo history.
+  previousUndoStorePath = process.env.PI_UNDO_STORE_PATH;
+  process.env.PI_UNDO_STORE_PATH = join(dir, "undo-store.jsonl");
 });
 
 afterAll(() => {
+  if (previousUndoStorePath === undefined) {
+    delete process.env.PI_UNDO_STORE_PATH;
+  } else {
+    process.env.PI_UNDO_STORE_PATH = previousUndoStorePath;
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 
