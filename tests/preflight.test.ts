@@ -231,7 +231,7 @@ describe("registerPreflight hook — in-place normalization + honest scope", () 
     const pi = createPiMock();
     registerPreflight(pi as unknown as ExtensionAPI);
     (getConfig() as any).outsideCwdAdvisoryEnabled = true;
-    const outside = mkdtempSync(join("/var/tmp", "preflight-advisory-dup-"));
+    const outside = mkdtempSync(join(tmpdir(), "preflight-advisory-dup-"));
     const outsideFile = join(outside, "file.txt");
     writeFileSync(outsideFile, "x");
 
@@ -263,7 +263,7 @@ describe("registerPreflight hook — in-place normalization + honest scope", () 
     const pi = createPiMock();
     registerPreflight(pi as unknown as ExtensionAPI);
     (getConfig() as any).outsideCwdAdvisoryEnabled = true;
-    const outside = mkdtempSync(join("/var/tmp", "preflight-repair-owned-"));
+    const outside = mkdtempSync(join(tmpdir(), "preflight-repair-owned-"));
     const outsideFile = join(outside, "file.txt");
     writeFileSync(outsideFile, "x");
 
@@ -286,7 +286,7 @@ describe("registerPreflight hook — in-place normalization + honest scope", () 
     const pi = createPiMock();
     registerPreflight(pi as unknown as ExtensionAPI);
     (getConfig() as any).outsideCwdAdvisoryEnabled = false;
-    const outside = mkdtempSync(join("/var/tmp", "preflight-repair-toggled-"));
+    const outside = mkdtempSync(join(tmpdir(), "preflight-repair-toggled-"));
     const outsideFile = join(outside, "file.txt");
     writeFileSync(outsideFile, "x");
 

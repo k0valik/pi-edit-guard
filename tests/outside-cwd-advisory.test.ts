@@ -11,7 +11,7 @@ describe("outside-cwd advisory (RED)", () => {
   let outside: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "advisory-red-"));
-    outside = mkdtempSync(join("/var/tmp", "advisory-red-outside-"));
+    outside = mkdtempSync(join(tmpdir(), "advisory-red-outside-"));
     telemetry.drain();
   });
 

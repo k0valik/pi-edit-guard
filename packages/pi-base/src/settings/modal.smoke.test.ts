@@ -1203,9 +1203,10 @@ describe("createSettingsModal — default scope action handlers", () => {
 
   it("uses globalConfigDir in auto-injected onResetScope/onDeleteScope when provided", async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = require("node:fs");
+    const { tmpdir } = require("node:os");
     const { join } = require("node:path");
 
-    const tmpDir = mkdtempSync("/tmp/pi-modal-test-");
+    const tmpDir = mkdtempSync(join(tmpdir(), "pi-modal-test-"));
     const globalDir = join(tmpDir, "extensions");
     const projectDir = join(tmpDir, "project");
     mkdirSync(globalDir, { recursive: true });

@@ -7,7 +7,7 @@ import { preflight } from "../src/guards/preflight/preflight.js";
 describe("preflight advisory (RED)", () => {
   it("returns advisory when existing path is outside cwd", () => {
     const cwd = mkdtempSync(join(tmpdir(), "preflight-cwd-"));
-    const outside = mkdtempSync(join("/var/tmp", "preflight-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "preflight-outside-"));
     const outsideFile = join(outside, "file.txt");
     writeFileSync(outsideFile, "hello");
 
@@ -41,7 +41,7 @@ describe("preflight advisory (RED)", () => {
 
   it("carries the alias repair on the advisory outcome instead of dropping it", () => {
     const cwd = mkdtempSync(join(tmpdir(), "preflight-cwd4-"));
-    const outside = mkdtempSync(join("/var/tmp", "preflight-repair-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "preflight-repair-outside-"));
     const outsideFile = join(outside, "file.txt");
     writeFileSync(outsideFile, "hello");
 
@@ -61,7 +61,7 @@ describe("preflight advisory (RED)", () => {
 
   it("carries quote/whitespace normalization on the advisory outcome", () => {
     const cwd = mkdtempSync(join(tmpdir(), "preflight-quoted-cwd-"));
-    const outside = mkdtempSync(join("/var/tmp", "preflight-quoted-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "preflight-quoted-outside-"));
     const outsideFile = join(outside, "file.txt");
     writeFileSync(outsideFile, "hello");
 

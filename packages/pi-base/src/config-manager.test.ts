@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigManager, type ConfigManagerOptions } from "./config-manager.ts";
 import { deepEqual, checkConfigFile } from "./config.ts";
@@ -62,7 +63,7 @@ function createManager(opts?: Partial<ConfigManagerOptions<TestConfig>>) {
 let tempDir: string;
 
 beforeEach(() => {
-  tempDir = mkdtempSync("/tmp/config-manager-test-");
+  tempDir = mkdtempSync(join(tmpdir(), "config-manager-test-"));
 });
 
 afterEach(() => {
@@ -626,7 +627,7 @@ describe("default scope action handlers — file behavior", () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = mkdtempSync("/tmp/scope-action-test-");
+    tempDir = mkdtempSync(join(tmpdir(), "scope-action-test-"));
     process.env.PI_CODING_AGENT_DIR = tempDir;
   });
 

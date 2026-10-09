@@ -6,6 +6,7 @@
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -20,7 +21,7 @@ import {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function setupDirs(label: string) {
-  const tmp = mkdtempSync(`/tmp/pi-config-${label}-`);
+  const tmp = mkdtempSync(join(tmpdir(), `pi-config-${label}-`));
   const globalDir = join(tmp, "extensions");
   const projectDir = join(tmp, "project");
   mkdirSync(globalDir, { recursive: true });

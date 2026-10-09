@@ -15,7 +15,7 @@ let outsideFile: string;
 describe("edit tool advisory (RED)", () => {
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), "edit-advisory-test-"));
-    outside = mkdtempSync(join("/var/tmp", "edit-advisory-outside-"));
+    outside = mkdtempSync(join(tmpdir(), "edit-advisory-outside-"));
     outsideFile = join(outside, "target.txt");
     writeFileSync(outsideFile, "hello world\n");
     process.env.PI_UNDO_STORE_PATH = join(dir, "undo-store.json");

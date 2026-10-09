@@ -9,6 +9,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 beforeAll(() => {
@@ -494,7 +495,7 @@ describe("createSettingsModalBody — buffered mode", () => {
 
     beforeAll(() => {
       origAgentDir = process.env.PI_CODING_AGENT_DIR;
-      tmpDir = mkdtempSync("/tmp/pi-modal-test-");
+      tmpDir = mkdtempSync(join(tmpdir(), "pi-modal-test-"));
       globalDir = join(tmpDir, "extensions");
       projectDir = join(tmpDir, "project");
       mkdirSync(globalDir, { recursive: true });
