@@ -232,8 +232,9 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
    * to last-line-per-path winners, tombstones applied). Only FIFO eviction
    * rewrites — puts and deletes are pure appends — so the shared rename
    * target is touched rarely. Two processes renaming concurrently remain
-   * last-writer-wins for the whole file (the known residual race; fixing it
-   * needs real file locking, which is out of scope). The rename retries
+   * last-writer-wins for the whole file (the known residual race, tracked in
+   * #7; fixing it needs a provably mutually-exclusive cross-process lock,
+   * which is out of scope). The rename retries
    * transient Windows lock errors through the shared backoff
    * (renameWithRetrySync, 750 ms worst case), which widens this race window:
    * records appended by a concurrent session during the backoff are
@@ -273,15 +274,18 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
    * FIFO eviction: when the dump exceeds `maxBytes`, rewrite without the
    * oldest-updated records until it fits. At least the newest record is
    * always kept, even a pathological single record larger than the budget.
+   * Returns true when a rewrite was performed, false when the store was
+   * already within budget (or its size could not be read) — the caller only
+   * resets the warn-once latch after a real eviction.
    */
-  function evictOversize(): void {
+  function evictOversize(): boolean {
     let size: number;
     try {
       size = statSync(storePath).size;
     } catch {
-      return;
+      return false;
     }
-    if (size <= maxBytes) return;
+    if (size <= maxBytes) return false;
 
     // Re-read from disk (not a cached view) so records appended by concurrent
     // sessions participate in the FIFO ordering instead of being dropped.
@@ -311,6 +315,7 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       decorated.undoStoreMaxBytes = maxBytes;
       throw decorated;
     }
+    return true;
   }
 
   /**
@@ -393,8 +398,7 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
     put(path: string, record: UndoRecord): void {
       appendLine(serializeLine(path, record));
       try {
-        evictOversize();
-        evictionWarned.delete(storePath);
+        if (evictOversize()) evictionWarned.delete(storePath);
       } catch (error) {
         // Eviction is best-effort hygiene; the append itself succeeded.
         warnEvictionFailure(error);
@@ -408,8 +412,7 @@ export function createUndoStore(path?: string, options?: UndoStoreOptions): Undo
       // cannot be checked race-free anyway, and a stray tombstone is inert.
       appendLine(serializeTombstone(path));
       try {
-        evictOversize();
-        evictionWarned.delete(storePath);
+        if (evictOversize()) evictionWarned.delete(storePath);
       } catch (error) {
         // Eviction is best-effort hygiene; the tombstone itself succeeded.
         warnEvictionFailure(error);
