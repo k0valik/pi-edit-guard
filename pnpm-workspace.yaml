@@ -3,3 +3,15 @@ allowBuilds:
   esbuild: true
   protobufjs: true
   simple-git-hooks: true
+
+# Freshly published Pi 1.1.0 set; exempt from the minimum-release-age gate so a
+# clean `pnpm install` can resolve it (and CI is not broken by the 2-day window).
+minimumReleaseAgeExclude:
+  - "@earendil-works/chord@1.1.0"
+  - "@earendil-works/pi-agent-core@1.1.0"
+  - "@earendil-works/pi-ai@1.1.0"
+  - "@earendil-works/pi-codemode@1.1.0"
+  - "@earendil-works/pi-coding-agent@1.1.0"
+  - "@earendil-works/pi-mcp@1.1.0"
+  - "@earendil-works/pi-telemetry@1.1.0"
+  - "@earendil-works/pi-tui@1.1.0"

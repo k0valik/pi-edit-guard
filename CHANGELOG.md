@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **Pi 1.x is supported.** The declared peer ranges for `@earendil-works/pi-ai`
+  and `@earendil-works/pi-coding-agent` widen from `>=0.75.0 <1.0.0` to
+  `>=0.75.0 <2.0.0`, and `@earendil-works/pi-tui` is now a declared optional
+  peer. The dev toolchain moves to `1.1.0` and `packageManager` to pnpm
+  `12.10.0`. Freshly published 1.1.0 packages are exempted from the
+  minimum-release-age gate so a clean install resolves them.
+
 ### Fixed
 
 - undo store: FIFO compaction now stages a full rewrite to a per-pid tmp file and
