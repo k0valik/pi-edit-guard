@@ -13,7 +13,8 @@
  */
 
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { getPiAgentDir } from "./paths.js";
 
 interface CacheHit {
@@ -51,9 +52,15 @@ function resolveConfigDir(configDir: string | undefined): string {
   return configDir ?? getExtensionsDir();
 }
 
+/** True when `dir` is the OS temp dir or a descendant of it (a test sandbox). */
+function isUnderTempDir(dir: string): boolean {
+  const rel = relative(tmpdir(), dir);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 /** Check if a directory path points to a real user home (not a test temp). */
 function isRealDir(dir: string): boolean {
-  return !dir.startsWith("/tmp") && !dir.startsWith("/var/folders");
+  return !isUnderTempDir(dir);
 }
 
 /**
