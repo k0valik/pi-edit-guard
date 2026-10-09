@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, afterAll } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
@@ -31,15 +31,6 @@ const TEST_SANDBOX = mkdtempSync(join(tmpdir(), "pi-better-toolcalls-undo-store-
 function sandboxPath(file: string): string {
   return join(TEST_SANDBOX, file);
 }
-
-beforeAll(() => {
-  // Best-effort cleanup on process exit. Failures here do not fail the suite.
-  try {
-    rmSync(TEST_SANDBOX, { recursive: true, force: true });
-  } catch {
-    // ignore
-  }
-});
 
 afterAll(() => {
   try {
@@ -505,13 +496,20 @@ describe("saveUndo", () => {
   it("reports failure when the store cannot be written", async () => {
     _forceWriteFailure = "all";
     try {
-      const result = await saveUndo("/tmp/x.txt", {
-        content: "a",
-        bom: "",
-        originalEnding: "\n",
-        resultContent: "b",
-        encoding: "utf-8",
-      });
+      const result = await saveUndo(
+        "/tmp/x.txt",
+        {
+          content: "a",
+          bom: "",
+          originalEnding: "\n",
+          resultContent: "b",
+          encoding: "utf-8",
+        },
+        // Without an explicit storePath this falls back to defaultStorePath()
+        // and touches the real pi agent data dir (the mocked write still
+        // creates a 0-byte store file there).
+        sandboxPath("unwritable.jsonl"),
+      );
 
       expect(result.persisted).toBe(false);
     } finally {
