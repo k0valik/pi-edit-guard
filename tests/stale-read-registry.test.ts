@@ -518,3 +518,32 @@ describe("ReadRegistry unknown (unstatable) files", () => {
     expect(registry.getStaleWarning("/unread/f.txt")).toBeNull();
   });
 });
+
+describe("ReadRegistry keyFor + isUnknown", () => {
+  it("relative and absolute spellings of the same file share one key", () => {
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: 0 }),
+      baseDir: "/laneA",
+    });
+    // Same file, two spellings, one key — hook bookkeeping keyed on this
+    // cannot miss across relative/absolute forms.
+    expect(registry.keyFor("f.txt", "/laneA")).toBe("/laneA/f.txt");
+    expect(registry.keyFor("f.txt", "/laneA")).toBe(registry.keyFor("/laneA/f.txt", "/laneA"));
+    // Different lanes still separate.
+    expect(registry.keyFor("f.txt", "/laneB")).toBe("/laneB/f.txt");
+  });
+
+  it("isUnknown is true only for recorded-but-unstatable files", () => {
+    let mtime = 100;
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: mtime }),
+    });
+    expect(registry.isUnknown("/repo/f.txt")).toBe(false); // never read
+    registry.record("/repo/f.txt");
+    expect(registry.isUnknown("/repo/f.txt")).toBe(false); // statted fine
+    mtime = -1; // deleted / moved / wrong directory
+    expect(registry.isUnknown("/repo/f.txt")).toBe(true);
+  });
+});

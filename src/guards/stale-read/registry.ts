@@ -85,6 +85,17 @@ export class ReadRegistry {
     return resolve(cwd ?? this.baseDir, path);
   }
 
+  /**
+   * The canonical registry key for a path: resolved against the per-call
+   * cwd (falling back to the shared baseDir anchor), so relative and
+   * absolute spellings of the same file key identically. External
+   * bookkeeping (e.g. the hook's per-lane staleness flags) must key on
+   * this, never on the raw path string.
+   */
+  keyFor(path: string, cwd?: string): string {
+    return this.normalize(path, cwd);
+  }
+
   /** Update tolerance at runtime (called when config changes). */
   setToleranceMs(ms: number): void {
     this.toleranceMs = ms;
@@ -92,7 +103,7 @@ export class ReadRegistry {
 
   /** Record a read of `path` at the current time. */
   record(path: string, cwd?: string): void {
-    const key = this.normalize(path, cwd);
+    const key = this.keyFor(path, cwd);
     this.reads.set(key, this.now());
     // Fresh known baseline: the escalation ladder restarts. Without this, a
     // single flag poisoned the path for the whole session and every future
@@ -104,7 +115,7 @@ export class ReadRegistry {
 
   /** Last recorded read time for `path` (ms epoch), or undefined. */
   lastRead(path: string, cwd?: string): number | undefined {
-    return this.reads.get(this.normalize(path, cwd));
+    return this.reads.get(this.keyFor(path, cwd));
   }
 
   /**
@@ -113,20 +124,43 @@ export class ReadRegistry {
    * read is considered fresh (no data to judge staleness). An unstattable
    * file (mtime -1) also reads as fresh HERE — the UNKNOWN case is owned
    * by assertFresh/getStaleWarning, which surface an advisory instead of
-   * staying silent. Keeping this a cheap boolean avoids turning
-   * deleted-then-recreated flows and transient stat failures into blocks.
+   * staying silent (see isUnknown). Keeping this a cheap boolean avoids
+   * turning deleted-then-recreated flows and transient stat failures
+   * into blocks. Allow/block decisions must go through assertFresh, never
+   * this alone.
    */
   isFresh(path: string, cwd?: string): boolean {
-    const key = this.normalize(path, cwd);
+    const key = this.keyFor(path, cwd);
     const readAt = this.reads.get(key);
     if (readAt === undefined) return true;
-    const editAt = this.edits.get(key);
-    const effectiveReadAt = editAt !== undefined ? Math.max(readAt, editAt) : readAt;
     // Stat the RESOLVED key: a raw relative path would stat against
     // process.cwd() and miss the file entirely when the session's cwd
     // differs — surfacing mtime -1 and silently disarming the guard.
-    const mtime = this.stat(key).mtimeMs;
-    return mtime <= effectiveReadAt + this.toleranceMs;
+    return this.freshnessOf(key, readAt, this.stat(key).mtimeMs);
+  }
+
+  /**
+   * True when a recorded read exists but the file can no longer be statted
+   * (deleted, moved, permission loss, wrong-directory miss). The explicit
+   * third state beside isFresh: UNKNOWN reads as fresh there by design,
+   * so any future allow/block decision must consult assertFresh (or check
+   * this first) rather than relying on isFresh alone.
+   */
+  isUnknown(path: string, cwd?: string): boolean {
+    const key = this.keyFor(path, cwd);
+    return this.reads.get(key) !== undefined && isUnknownMtime(this.stat(key).mtimeMs);
+  }
+
+  /**
+   * Freshness of a single stat observation against a recorded baseline.
+   * Entry points stat exactly once per decision so concurrent modification
+   * cannot make the unknown-check, the freshness check, and the ladder
+   * reason about three different mtimes.
+   */
+  private freshnessOf(key: string, readAt: number, mtimeMs: number): boolean {
+    const editAt = this.edits.get(key);
+    const effectiveReadAt = editAt !== undefined ? Math.max(readAt, editAt) : readAt;
+    return mtimeMs <= effectiveReadAt + this.toleranceMs;
   }
 
   /**
@@ -153,8 +187,13 @@ export class ReadRegistry {
     path: string,
     opts?: { oldTexts?: string[]; cwd?: string },
   ): EditError | { kind: "stale-read-warning"; message: string } | null {
-    const key = this.normalize(path, opts?.cwd);
-    if (this.reads.get(key) !== undefined && isUnknownMtime(this.stat(key).mtimeMs)) {
+    const key = this.keyFor(path, opts?.cwd);
+    const readAt = this.reads.get(key);
+    if (readAt === undefined) return null;
+    // Single stat observation for the whole decision (unknown-check,
+    // freshness, and ladder below all share it).
+    const mtime = this.stat(key).mtimeMs;
+    if (isUnknownMtime(mtime)) {
       // Recorded read, but the file can no longer be statted (deleted,
       // moved, permission loss — or resolved against the wrong directory).
       // Never a silent proceed: surface an advisory so the drift is visible
@@ -169,9 +208,8 @@ export class ReadRegistry {
           "[stale-read advisory] Could not verify whether the file changed since your last read (it may have been moved or deleted). The edit will proceed, but verify the result.",
       };
     }
-    if (this.isFresh(path, opts?.cwd)) return null;
+    if (this.freshnessOf(key, readAt, mtime)) return null;
 
-    const mtime = this.stat(key).mtimeMs;
     const verbatimSafe = this.isVerbatimSafe(key, opts?.oldTexts);
     // Cheap check first: the chain walk only runs when verbatim fails.
     const applicableSafe = verbatimSafe || this.isWhitespaceSafe(key, opts?.oldTexts);
@@ -270,14 +308,18 @@ export class ReadRegistry {
    * is untouched.
    */
   getStaleWarning(path: string, oldTexts?: string[], cwd?: string): string | null {
-    const key = this.normalize(path, cwd);
-    if (this.reads.get(key) !== undefined && isUnknownMtime(this.stat(key).mtimeMs)) {
+    const key = this.keyFor(path, cwd);
+    const readAt = this.reads.get(key);
+    if (readAt === undefined) return null;
+    // Single stat observation (see assertFresh).
+    const mtime = this.stat(key).mtimeMs;
+    if (isUnknownMtime(mtime)) {
       // Same UNKNOWN case as assertFresh (see above): always visible here,
       // independent of the warned-gate below — an unverifiable file is not
       // a "drift event" with once-only semantics.
       return "[stale-read advisory] Could not verify whether the file changed since your last read (it may have been moved or deleted). The edit will proceed, but verify the result.";
     }
-    if (this.isFresh(path, cwd)) return null;
+    if (this.freshnessOf(key, readAt, mtime)) return null;
     if (!this.warned.has(key)) return null;
     if (this.isVerbatimSafe(key, oldTexts)) return null;
     if (this.isWhitespaceSafe(key, oldTexts)) return null;
@@ -286,7 +328,7 @@ export class ReadRegistry {
 
   /** Mark the file as freshly known (called after our own successful edit). */
   selfRefresh(path: string, cwd?: string): void {
-    const key = this.normalize(path, cwd);
+    const key = this.keyFor(path, cwd);
     const now = this.now();
     this.edits.set(key, now);
     this.reads.set(key, now);
