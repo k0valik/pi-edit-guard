@@ -308,7 +308,7 @@ Event kinds: `repair.rule`, `match.pass`, `match.closest_candidate`, `anchor.not
 | `pnpm check`     | Full gate: typecheck + lint + fmt:check + test. |
 | `pnpm build`     | Bundle with `tsup`.                             |
 
-**Packaging**: ESM (`"type": "module"`); main entry `src/extension.ts`; root `extension.ts` re-exports it for older `pi.extensions` entries. `tsup` bundles to `dist/` (ESM, tree-shaken) with pi packages and typebox external. Pi packages are optional peer dependencies; typebox is a runtime dependency. Node >= 24.18.0.
+**Packaging**: ESM (`"type": "module"`); main entry `src/extension.ts`; root `extension.ts` re-exports it for older `pi.extensions` entries. `tsup` bundles to `dist/` (ESM, tree-shaken) with pi packages and typebox external. Pi packages and typebox are host-provided optional peer dependencies (`"*"` range, never `dependencies`); Node >= 24.18.0. `typebox` is pinned in `devDependencies` (matching the host's copy) for local typecheck/tests only.
 
 **Tests**: vitest, two projects - `pi-extension-template` (`src/**/*.test.ts`, `__tests__/**/*.test.ts`) and `pi-base` (`packages/pi-base/**`). Integration replay tests live in `tests/integration/` with fixtures under `fixtures/`. Default timeout 15 s.
 
