@@ -138,7 +138,31 @@ describe("safe-save filesystem contract", () => {
     expect(result.details?.error).not.toBe("not-writable");
   });
 
-  it("ignores ENOENT from the writability probe (injected mock filesystems)", async () => {
+  it("reports file-not-found when the classified target vanishes before commit", async () => {
+    const files: Record<string, Buffer> = { "/tmp/mock.txt": Buffer.from("hello\n") };
+    const writeFile = vi.fn();
+    const rename = vi.fn();
+    const result = await executeFile("/tmp/mock.txt", [{ oldText: "hello", newText: "bye" }], {
+      ...baseOpts,
+      readFile: (p) => files[p]!,
+      writeFile,
+      rename,
+      stat: () => regularStat(),
+      access: () => {
+        throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+      },
+    });
+
+    // The target was classified (stat succeeded) but is gone at commit time:
+    // fail instead of resurrecting a deleted pathname.
+    expect(result.isError).toBe(true);
+    expect(result.details?.error).toBe("file-not-found");
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(rename).not.toHaveBeenCalled();
+    expect(String(files["/tmp/mock.txt"])).toBe("hello\n");
+  });
+
+  it("tolerates an ENOENT probe when the target was never classified", async () => {
     const files: Record<string, Buffer> = { "/tmp/mock.txt": Buffer.from("hello\n") };
     const result = await executeFile("/tmp/mock.txt", [{ oldText: "hello", newText: "bye" }], {
       ...baseOpts,
@@ -149,14 +173,41 @@ describe("safe-save filesystem contract", () => {
       rename: (from, to) => {
         files[to] = files[from]!;
       },
-      stat: () => regularStat(),
+      stat: () => {
+        throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+      },
       access: () => {
         throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
       },
     });
 
+    // No classified target (e.g. injected mock filesystem): the read gate is
+    // authoritative, so the edit proceeds.
     expect(result.isError).toBe(false);
     expect(String(files["/tmp/mock.txt"])).toContain("bye");
+  });
+
+  it("warns when the temp cannot be statted for ownership", async () => {
+    const files: Record<string, Buffer> = { "/tmp/owned.txt": Buffer.from("hello\n") };
+    const result = await executeFile("/tmp/owned.txt", [{ oldText: "hello", newText: "bye" }], {
+      ...baseOpts,
+      readFile: (p) => files[p] ?? files["/tmp/owned.txt"]!,
+      writeFile: (p, data) => {
+        files[p] = Buffer.from(data as string | Uint8Array);
+      },
+      rename: (from, to) => {
+        files[to] = files[from]!;
+      },
+      stat: (p: string) => {
+        if (p.includes(".edit-guard-")) throw new Error("EIO: i/o error");
+        return regularStat({ uid: 1000, gid: 1000 });
+      },
+      chown: () => {},
+    });
+
+    expect(result.isError).toBe(false);
+    expect(String(files["/tmp/owned.txt"])).toContain("bye");
+    expect(result.content[0]?.text).toContain("[OWNERSHIP]");
   });
 
   it("chowns the temp before chmod when owners differ", async () => {

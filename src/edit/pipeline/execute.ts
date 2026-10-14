@@ -253,7 +253,8 @@ export interface ExecuteFileOptions {
   chmod?: (p: string, mode: number) => void;
   /** Chown for restoring tmp ownership before rename (best-effort). Defaults to chownSync. */
   chown?: (p: string, uid: number, gid: number) => void;
-  /** Writability probe (commit-time). Defaults to accessSync(path, W_OK). */
+  /** Writability probe (commit-time, POSIX-oriented; advisory on Windows).
+   * Defaults to accessSync(path, W_OK). */
   access?: (p: string) => void;
   /** Lstat for detecting symlinks (rename must target the link target). Defaults to lstatSync. */
   lstat?: (p: string) => { isSymbolicLink(): boolean };
@@ -318,6 +319,12 @@ function preserveOwnership(
   try {
     tmpStat = stat(tmpPath);
   } catch {
+    // Abnormal: the tmp was just written, so an un-stattable tmp hides a
+    // real problem. Warn rather than silently skipping ownership.
+    postWriteWarnings.push(
+      "[OWNERSHIP] Could not check the temporary file's owner — ownership may not " +
+        "have been preserved; restore with chown if needed.",
+    );
     return;
   }
   if (tmpStat.uid === undefined || tmpStat.gid === undefined) return;
@@ -356,18 +363,52 @@ function notWritableMessage(path: string): string {
   );
 }
 
+// Thrown when the target vanishes between classification and commit
+// (access reports ENOENT on a previously statted target). Maps to
+// file-not-found, not not-writable: the edit resolved against bytes that no
+// longer have a pathname. Without this, tmp+rename (or the hardlink direct
+// write) would silently resurrect a deliberately deleted file.
+class StaleTargetError extends Error {
+  readonly writePath: string;
+  constructor(writePath: string) {
+    super("stale-target");
+    this.name = "StaleTargetError";
+    this.writePath = writePath;
+  }
+}
+
+function staleTargetMessage(path: string): string {
+  return `Error: file not found: ${path} — the file may have been moved or deleted during the edit.`;
+}
+
 // Commit-time writability gate: safe-save must not circumvent a write
 // restriction that a normal in-place write would hit, using directory-level
 // rename permission to modify a read-only file. Runs only when there is
 // something to persist, so a read-only file with a nonmatching edit still
-// reports the (more useful) matching failure. ENOENT is ignored: with an
-// injected mock filesystem the read succeeds but no real file exists.
-function assertTargetWritable(access: (p: string) => void, writePath: string): void {
+// reports the (more useful) matching failure.
+//
+// POSIX-oriented: W_OK follows permission bits/ACLs on POSIX; on Windows
+// Node's access() does not check ACLs and is advisory only — the subsequent
+// write/rename still enforces OS permissions. Linux/POSIX is first-class;
+// Windows is best-effort here.
+//
+// ENOENT is tolerated ONLY for unclassified targets (the initial stat
+// failed, e.g. injected mock filesystems where the read is authoritative).
+// A classified target that is gone at commit time is a stale target, not a
+// success: proceeding would resurrect a deleted pathname.
+function assertTargetWritable(
+  access: (p: string) => void,
+  writePath: string,
+  hasTargetStat: boolean,
+): void {
   try {
     access(writePath);
   } catch (err) {
     const code = (err as { code?: string } | null | undefined)?.code;
-    if (code === "ENOENT") return;
+    if (code === "ENOENT") {
+      if (!hasTargetStat) return;
+      throw new StaleTargetError(writePath);
+    }
     throw new NotWritableError(writePath);
   }
 }
@@ -402,7 +443,7 @@ export interface PersistEditedFileOptions {
  * protects against interrupted process-level writes, not power loss.
  */
 async function persistEditedFile(o: PersistEditedFileOptions): Promise<void> {
-  assertTargetWritable(o.access, o.writePath);
+  assertTargetWritable(o.access, o.writePath, o.targetStat !== undefined);
 
   if (o.targetStat?.nlink !== undefined && o.targetStat.nlink > 1) {
     o.writeFile(o.writePath, o.outputBuffer);
@@ -441,7 +482,7 @@ async function persistEditedFile(o: PersistEditedFileOptions): Promise<void> {
       o.postWriteWarnings,
     );
   } catch (err) {
-    if (err instanceof NotWritableError) throw err;
+    if (err instanceof NotWritableError || err instanceof StaleTargetError) throw err;
     // Clean up the temp file (unlink, not truncate — the old code left
     // empty `.patch-tool-*.tmp` files behind in target directories).
     try {
@@ -833,6 +874,14 @@ export async function executeFile(
             details: { error: "not-writable", path, message },
           };
         }
+        if (err instanceof StaleTargetError) {
+          const message = staleTargetMessage(path);
+          return {
+            content: [{ type: "text", text: message }],
+            isError: true,
+            details: { error: "file-not-found", path },
+          };
+        }
         return {
           content: [
             {
@@ -984,6 +1033,14 @@ export async function executeFile(
           content: [{ type: "text", text: message }],
           isError: true,
           details: { error: "not-writable", path, message },
+        };
+      }
+      if (err instanceof StaleTargetError) {
+        const message = staleTargetMessage(path);
+        return {
+          content: [{ type: "text", text: message }],
+          isError: true,
+          details: { error: "file-not-found", path },
         };
       }
       return {

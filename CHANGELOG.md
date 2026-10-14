@@ -10,9 +10,25 @@
   peer. The dev toolchain moves to `1.1.0` and `packageManager` to pnpm
   `12.10.0`. Freshly published 1.1.0 packages are exempted from the
   minimum-release-age gate so a clean install resolves them.
+- `edit`: safe-save persistence contract for the write path
+  (`edit/pipeline/execute.ts`). Ordinary single-link regular files persist
+  via sibling-temp + rename (atomic pathname replacement, mode restored,
+  best-effort ownership restored chown-before-chmod); files with `nlink > 1`
+  persist via in-place overwrite plus a `[NON-ATOMIC WRITE]` warning to
+  preserve hard-link identity; non-regular files (FIFO, socket, device) are
+  refused before reading; read-only targets are refused at commit time
+  rather than bypassed via directory rename permission. Partial- and
+  full-apply share one `persistEditedFile()` helper. Deliberately no
+  `fsync`: the guarantee is crash-consistency against interrupted
+  process-level writes, not power-loss durability. The `W_OK` probe is
+  POSIX-oriented and advisory on Windows.
 
 ### Fixed
 
+- `edit`: a classified target that vanishes between stat and commit now
+  fails with `file-not-found` instead of silently resurrecting a deleted
+  pathname via tmp+rename or the hardlink direct write; an unstattable temp
+  file warns `[OWNERSHIP]` instead of silently skipping ownership restore.
 - undo store: FIFO compaction now stages a full rewrite to a per-pid tmp file and
   renames it atomically into place, retrying transient Windows rename locks
   (EPERM/EACCES/EBUSY) through the shared backoff (`shared/atomic-write.ts`,

@@ -112,6 +112,7 @@ describe("file mode preservation", () => {
       },
       exists: () => true,
       stat: () => ({ mode: 0o100755 }),
+      access: () => {},
       chmod: () => {
         throw new Error("EPERM");
       },
@@ -187,6 +188,7 @@ describe.skipIf(!POSIX)("symlink preservation", () => {
       },
       exists: () => true,
       stat: () => ({ mode: 0o100644 }),
+      access: () => {},
       chmod: () => {},
       lstat: () => ({ isSymbolicLink: () => true }),
       realpath: () => "/real/target.txt",

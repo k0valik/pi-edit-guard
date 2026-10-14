@@ -45,6 +45,7 @@ function makeFs() {
       stat: () => ({ mode: 0o644 }),
       lstat: () => ({ isSymbolicLink: () => false }),
       chmod: vi.fn(),
+      access: () => {},
     },
   };
 }

@@ -69,6 +69,7 @@ async function runAgainstDrifted(scenario: BenchmarkScenario): Promise<RunOutcom
       },
       stat: () => ({ mode: 0o644 }),
       chmod: () => {},
+      access: () => {},
       lstat: () => ({ isSymbolicLink: () => false }),
       realpath: (p) => p,
     },

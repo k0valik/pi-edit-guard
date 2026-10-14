@@ -56,6 +56,7 @@ async function runAgainst(
       },
       stat: () => ({ mode: 0o644 }),
       chmod: () => {},
+      access: () => {},
       lstat: () => ({ isSymbolicLink: () => false }),
       realpath: (p) => p,
     },
