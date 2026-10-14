@@ -53,7 +53,13 @@ const DEFAULTS: Readonly<EditGuardEnv> = {
   repairPolicy: "adaptive",
   repairEnabled: true,
   staleReadEnabled: true,
-  staleReadToleranceMs: 500,
+  // Paper value (FileTimeTracker), matching ReadRegistry.DEFAULT_TOLERANCE_MS.
+  // Measured 2026-10: FS-vs-wall-clock jitter is single-digit ms, so 50ms
+  // carries ~10x headroom while leaving a 600ms detection margin under the
+  // 650ms external-race delays benchmarks use. Was 500 (initial-commit
+  // default, no measured basis) — that blind window silently passed
+  // sub-500ms drift. Override via EDIT_GUARD_STALE_READ_TOLERANCE_MS.
+  staleReadToleranceMs: 50,
   stormbreakerEnabled: true,
   stormbreakerThreshold: 3,
   stormbreakerAutoContinue: true,

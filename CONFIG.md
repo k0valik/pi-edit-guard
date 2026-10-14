@@ -17,7 +17,7 @@ Settings can also be changed at runtime with `/edit-guard:config`.
 | `repairEnabled`             | `true`     | Argument repair pipeline (native-compat subset always runs).                                                                                                                                         |
 | `repairPolicy`              | `adaptive` | `conservative`, `adaptive`, or `recover`.                                                                                                                                                            |
 | `staleReadEnabled`          | `true`     | Stale-read protection.                                                                                                                                                                               |
-| `staleReadToleranceMs`      | `500`      | Mtime tolerance (>= 0).                                                                                                                                                                              |
+| `staleReadToleranceMs`      | `50`       | Mtime tolerance (>= 0).                                                                                                                                                                              |
 | `stormbreakerEnabled`       | `true`     | Error enhancement + loop breaking.                                                                                                                                                                   |
 | `stormbreakerThreshold`     | `3`        | Same-signature failures within the sliding window before breaking (clamped 1-10).                                                                                                                    |
 | `stormbreakerAutoContinue`  | `true`     | Auto-resume with a corrective retry prompt after a loop break.                                                                                                                                       |
@@ -67,7 +67,7 @@ Environment variables override file config. Boolean vars accept `1/0`, `true/fal
 | `EDIT_GUARD_REPAIR_ENABLED`               | `true`     | Enable argument repair                                               |
 | `EDIT_GUARD_REPAIR_POLICY`                | `adaptive` | Repair policy: `conservative`, `adaptive`, or `recover`              |
 | `EDIT_GUARD_STALE_READ_ENABLED`           | `true`     | Enable stale-read protection                                         |
-| `EDIT_GUARD_STALE_READ_TOLERANCE_MS`      | `500`      | Mtime tolerance in milliseconds                                      |
+| `EDIT_GUARD_STALE_READ_TOLERANCE_MS`      | `50`       | Mtime tolerance in milliseconds                                      |
 | `EDIT_GUARD_STORMBREAKER_ENABLED`         | `true`     | Enable error enhancement + loop breaking                             |
 | `EDIT_GUARD_STORMBREAKER_THRESHOLD`       | `3`        | Same-signature failures before breaking the loop                     |
 | `EDIT_GUARD_STORMBREAKER_AUTO_CONTINUE`   | `true`     | Auto-resume after loop break                                         |
