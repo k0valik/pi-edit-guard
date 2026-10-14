@@ -6,7 +6,8 @@
   "globals": {},
   "ignorePatterns": [
     "tests/integration/fixtures/files",
-    "tests/integration/fixtures/session-failures.json"
+    "tests/integration/fixtures/session-failures.json",
+    "tests/integration/fixtures/pi-edit-benchmark"
   ],
   "rules": {
     "no-console": "off",

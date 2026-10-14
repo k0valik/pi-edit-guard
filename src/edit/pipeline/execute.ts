@@ -1115,8 +1115,13 @@ export async function executeFile(
         originalEnding: detectLineEnding(rawContent),
         // BOM-free LF-normalized pre/post content for native-shape diff/patch
         // construction by the tool layer (base = pre-edit, new = post-edit).
+        // newContent MUST be derived from the post-hygiene raw splice
+        // (same as the partial-apply path), not result.content: the
+        // normalized splice can carry artifacts the raw-splice hygiene
+        // removed (e.g. a duplicated trailing line break on line deletion),
+        // which would otherwise surface as a phantom blank line in the diff.
         baseContent: normContent,
-        newContent: result.content,
+        newContent: normalizeNewlines(newContentRaw),
         rawContent: bomStripped,
         rawResult: newContentRaw,
         coherenceWarnings,

@@ -3,6 +3,7 @@
     "tests/integration/fixtures/files",
     "tests/integration/fixtures/session-failures.json",
     "tests/integration/fixtures/benchmark/traces",
+    "tests/integration/fixtures/pi-edit-benchmark",
     "scripts/**/*.mjs",
     "tmp/**/*.mjs"
   ],

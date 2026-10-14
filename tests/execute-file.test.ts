@@ -319,6 +319,64 @@ describe("executeFile", () => {
     expect(String(files["/tmp/t.txt"])).toBe("AA\r\nbb\r\n");
   });
 
+  it("reports post-hygiene newContent on line deletion (no phantom blank line)", async () => {
+    // Mined from pi-edit-benchmark delete-line: the file write was correct
+    // (aaa\nccc\n) but details.newContent carried the pre-hygiene splice
+    // (aaa\n\nccc\n), so the tool-layer diff showed a phantom blank line
+    // and the model spiralled into undo/retry. The reported content must
+    // match what was actually written.
+    const files: Record<string, Buffer | string> = {
+      "/tmp/delete.ts": Buffer.from("aaa\nbbb\nccc\n", "utf-8"),
+    };
+    const result = await executeFile(
+      "/tmp/delete.ts",
+      [{ oldText: "aaa\nbbb\n", newText: "aaa\n" }],
+      {
+        readFile: (p) => files[p] as Buffer,
+        writeFile: (p, data) => {
+          files[p] = data;
+        },
+        rename: (from, to) => {
+          files[to] = files[from] ?? Buffer.alloc(0);
+        },
+        exists: () => true,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const written = String(files["/tmp/delete.ts"]);
+    expect(written).toBe("aaa\nccc\n");
+    expect(result.details?.newContent).toBe(written);
+    expect(result.details?.newContent).toBe("aaa\nccc\n");
+  });
+
+  it("reports post-hygiene newContent for multi-line trailing-newline spans", async () => {
+    // Same reporting contract over a wider span: oldText carries a trailing
+    // newline and the raw splice hygiene must be reflected in newContent.
+    const files: Record<string, Buffer | string> = {
+      "/tmp/span.ts": Buffer.from("// head\nlineA\nlineB\nlineC\n// tail\n", "utf-8"),
+    };
+    const result = await executeFile(
+      "/tmp/span.ts",
+      [{ oldText: "lineA\nlineB\nlineC\n", newText: "lineA\n" }],
+      {
+        readFile: (p) => files[p] as Buffer,
+        writeFile: (p, data) => {
+          files[p] = data;
+        },
+        rename: (from, to) => {
+          files[to] = files[from] ?? Buffer.alloc(0);
+        },
+        exists: () => true,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const written = String(files["/tmp/span.ts"]);
+    expect(written).toBe("// head\nlineA\n// tail\n");
+    expect(result.details?.newContent).toBe(written);
+  });
+
   it("exposes bom and originalEnding in details for undo metadata", async () => {
     const files: Record<string, Buffer | string> = {
       "/tmp/t.txt": Buffer.from("aa\r\nbb\r\n", "utf-8"),
