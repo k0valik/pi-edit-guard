@@ -1,0 +1,148 @@
+{
+ "modelId": "mimo-v2.5",
+ "contenderId": "pi-edit-guard",
+ "contenderVersion": "0.1.8",
+ "scenarioId": "formatter-drift",
+ "task": "Modify formatter-drift.ts in the current working directory. In the line containing 'opts.port ?? 8080', change 8080 to 9090. Use the provided tools.",
+ "startedAt": "2026-10-13T10:55:49.730Z",
+ "durationMs": 46354,
+ "tokensIn": 13601,
+ "tokensOut": 726,
+ "costUsd": 0.00210742,
+ "pass": false,
+ "outcome": "applied",
+ "failureKind": "applied-wrong",
+ "readFirst": true,
+ "editedBlind": false,
+ "expectedContent": "function connect(opts) {\n    const host = opts.host;\n    const port = opts.port ?? 9090;\n    return { host, port };\n",
+ "actualContent": "function connect(opts) {\n  const host = opts.host;\n  const port = opts.port ?? 9090;\n  return { host, port };\n",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n- read: Read file contents\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- undo: Revert the most recent edit-tool change on a file\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\nUse read to examine files instead of cat or sed.\nUse edit for precise changes (edits[].oldText must match exactly)\nWhen changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\nEach edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\nKeep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\nIf edits[].oldText appears in more than one place, add an anchor: text copied verbatim from the file immediately above or below the lines being replaced — a heading, comment, or distinctive line. The anchor identifies which copy to change, so oldText can stay short and exact.\nFor renames where the same text appears in multiple places, set replaceAll: true to replace every occurrence in the file.\nWhen your last edit to a file turns out wrong, use undo to take it back instead of hand-reverting or rewriting the file.\n\nCurrent working directory: /tmp/pi-llm-bench-ofrSs6/pi-edit-guard-formatter-drift"
+  },
+  {
+   "role": "user",
+   "content": "Modify formatter-drift.ts in the current working directory. In the line containing 'opts.port ?? 8080', change 8080 to 9090. Use the provided tools."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Let me read the file first.",
+   "toolCalls": [
+    {
+     "id": "call_be28a36757e640b1bdbd6250",
+     "name": "read",
+     "arguments": "{\"path\": \"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_be28a36757e640b1bdbd6250",
+   "content": "function connect(opts) {\n  const host = opts.host;\n  const port = opts.port ?? 8080;\n  return { host, port };\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Simple edit.",
+   "toolCalls": [
+    {
+     "id": "call_3291236c1d3d4e0aa45c719a",
+     "name": "edit",
+     "arguments": "{\"path\": \"formatter-drift.ts\", \"edits\": [{\"oldText\": \"opts.port ?? 8080\", \"newText\": \"opts.port ?? 9090\"}]}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_3291236c1d3d4e0aa45c719a",
+   "content": "Successfully replaced 1 block(s) in formatter-drift.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 function connect(opts) {\n 2     const host = opts.host;\n-3     const port = opts.port ?? 8080;\n+3     const port = opts.port ?? 9090;\n 4     return { host, port };"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Note: the diff shows line 3 with leading spaces changed? Actually the diff context shows indentation change on lines 2-3 in the output display, but that may just be the diff rendering. Let me verify the file.",
+   "toolCalls": [
+    {
+     "id": "call_4569b2a222b94b91885a6d0e",
+     "name": "read",
+     "arguments": "{\"path\": \"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_4569b2a222b94b91885a6d0e",
+   "content": "function connect(opts) {\n    const host = opts.host;\n    const port = opts.port ?? 9090;\n    return { host, port };\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Interesting — the edit changed the indentation of lines 2-3 (2 spaces → 4 spaces), which wasn't requested. Wait, did my edit do that? My edit only replaced the text \"opts.port ?? 8080\". Hmm, but the tool output diff shows indentation change. Possibly the tool applied formatting. Regardless, the current state has changed indentation beyond what was asked. Should I restore original indentation?\n\nThe user asked only to change 8080 to 9090. The extra whitespace change is unintended drift (ironic given filename \"formatter-drift\"). I should revert the indentation on lines 2-3 back to original 2-space.\n\nOriginal:\n```\nfunction connect(opts) {\n  const host = opts.host;\n  const port = opts.port ?? 9090;\n  return { host, port };\n```\n\nLet me fix indentation back.",
+   "toolCalls": [
+    {
+     "id": "call_cbaaa83ca62248a590daf1f4",
+     "name": "edit",
+     "arguments": "{\"edits\": [{\"newText\": \"  const host = opts.host;\\n  const port = opts.port ?? 9090;\", \"oldText\": \"    const host = opts.host;\\n    const port = opts.port ?? 9090;\"}], \"path\": \"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_cbaaa83ca62248a590daf1f4",
+   "content": "Successfully replaced 1 block(s) in formatter-drift.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 function connect(opts) {\n-2     const host = opts.host;\n-3     const port = opts.port ?? 9090;\n+2   const host = opts.host;\n+3   const port = opts.port ?? 9090;\n 4     return { host, port };"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Line 4 still has 4 spaces indentation. Let me check the file.",
+   "toolCalls": [
+    {
+     "id": "call_20328f698d0a46fe9a4e72fc",
+     "name": "read",
+     "arguments": "{\"path\": \"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_20328f698d0a46fe9a4e72fc",
+   "content": "function connect(opts) {\n  const host = opts.host;\n  const port = opts.port ?? 9090;\n    return { host, port };\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Line 4 still has 4 spaces. The original had 2 spaces on line 4. Fix it back to original.",
+   "toolCalls": [
+    {
+     "id": "call_8cda03f961c740e48e507d1b",
+     "name": "edit",
+     "arguments": "{\"edits\": [{\"newText\": \"  return { host, port };\", \"oldText\": \"    return { host, port };\"}], \"path\": \"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_8cda03f961c740e48e507d1b",
+   "content": "Successfully replaced 1 block(s) in formatter-drift.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 function connect(opts) {\n 2   const host = opts.host;\n 3   const port = opts.port ?? 9090;\n-4     return { host, port };\n+4   return { host, port };"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "reasoning": "Verify final state.",
+   "toolCalls": [
+    {
+     "id": "call_36b3fc3c4d924efc9bd79cba",
+     "name": "read",
+     "arguments": "{\"path\": \"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_36b3fc3c4d924efc9bd79cba",
+   "content": "function connect(opts) {\n  const host = opts.host;\n  const port = opts.port ?? 9090;\n  return { host, port };\n"
+  }
+ ]
+}

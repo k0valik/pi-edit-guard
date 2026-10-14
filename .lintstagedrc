@@ -1,4 +1,4 @@
 {
   "*.{ts,js,mjs,cjs}": ["oxlint --fix"],
-  "*.{ts,json,jsonc,md}": ["oxfmt"]
+  "*.{ts,json,jsonc,md}": ["oxfmt --no-error-on-unmatched-pattern"]
 }

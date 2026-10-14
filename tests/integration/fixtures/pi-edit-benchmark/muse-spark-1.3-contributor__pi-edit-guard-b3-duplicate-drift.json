@@ -1,0 +1,108 @@
+{
+ "modelId": "muse-spark-1.3-contributor",
+ "contenderId": "pi-edit-guard",
+ "contenderVersion": "0.1.8",
+ "scenarioId": "b3-duplicate-drift",
+ "task": "Modify b3.ts in the current working directory. The file contains two functions. Replace the line that is the closing brace '}' of the SECOND function (the second line that is exactly '}') with exactly '};'. Use the provided tools.",
+ "startedAt": "2026-10-13T10:43:13.204Z",
+ "durationMs": 14096,
+ "tokensIn": 11912,
+ "tokensOut": 1702,
+ "costUsd": 0.0015316000000000001,
+ "pass": false,
+ "outcome": "applied",
+ "failureKind": "silent-wrong-line",
+ "readFirst": true,
+ "editedBlind": false,
+ "actualContent": "function a() {\n  return 1;\n}\nfunction b() {\n  return 2;\n};\n",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n- read: Read file contents\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- undo: Revert the most recent edit-tool change on a file\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\nUse read to examine files instead of cat or sed.\nUse edit for precise changes (edits[].oldText must match exactly)\nWhen changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\nEach edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\nKeep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\nIf edits[].oldText appears in more than one place, add an anchor: text copied verbatim from the file immediately above or below the lines being replaced — a heading, comment, or distinctive line. The anchor identifies which copy to change, so oldText can stay short and exact.\nFor renames where the same text appears in multiple places, set replaceAll: true to replace every occurrence in the file.\nWhen your last edit to a file turns out wrong, use undo to take it back instead of hand-reverting or rewriting the file.\n\nCurrent working directory: /tmp/pi-llm-bench-81y61o/pi-edit-guard-b3-duplicate-drift"
+  },
+  {
+   "role": "user",
+   "content": "Modify b3.ts in the current working directory. The file contains two functions. Replace the line that is the closing brace '}' of the SECOND function (the second line that is exactly '}') with exactly '};'. Use the provided tools."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "call_acf1d535-d0b9-4534-943c-6ab98604405c",
+     "name": "read",
+     "arguments": "{\"path\":\"b3.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_acf1d535-d0b9-4534-943c-6ab98604405c",
+   "content": "function a() {\n  return 1;\n}\nfunction b() {\n  return 2;\n}\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "call_d0654bf5-5ac4-4df3-8d8a-fa4f549524c2",
+     "name": "edit",
+     "arguments": "{\"edits\":[{\"anchor\":\"  return 2;\",\"newText\":\"};\",\"oldText\":\"}\"}],\"path\":\"b3.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_d0654bf5-5ac4-4df3-8d8a-fa4f549524c2",
+   "content": "Error: [edit] oldText found 2 times at line 3, line 6 in b3.ts. Provide more surrounding context to make the match unique, or set replaceAll: true to replace every occurrence.\nAlternatives (top 2):\n  line 3 (100%): }\n  line 6 (100%): }"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "call_723ef91e-7247-48c8-8f16-b5cbe82dc6a6",
+     "name": "edit",
+     "arguments": "{\"edits\":[{\"newText\":\"  return 2;\\n};\",\"oldText\":\"  return 2;\\n}\"}],\"path\":\"b3.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_723ef91e-7247-48c8-8f16-b5cbe82dc6a6",
+   "content": "Error: [edit] Could not find oldText in b3.ts. The intended edit could not be applied.\nClosest match (91% similar) at lines 2-3:\n  return 1;\n}\nAnchor status: none provided — supply unique nearby context to narrow the search.\nCompare against the actual file content and retry with the correct text."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "call_724614c0-6a1f-4ec5-8bab-08b831652de6",
+     "name": "edit",
+     "arguments": "{\"edits\":[{\"newText\":\"function b() {\\n  return 2;\\n};\",\"oldText\":\"function b() {\\n  return 2;\\n}\"}],\"path\":\"b3.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_724614c0-6a1f-4ec5-8bab-08b831652de6",
+   "content": "Successfully replaced 1 block(s) in b3.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 function a() {\n 2   return 1;\n 3 }\n 4 function b() {\n-5   return 2; // drifted\n-6 }\n+5   return 2;\n+6 };"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "call_87a7bbea-ea8d-404d-aa20-83373933a7e2",
+     "name": "read",
+     "arguments": "{\"path\":\"b3.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "call_87a7bbea-ea8d-404d-aa20-83373933a7e2",
+   "content": "function a() {\n  return 1;\n}\nfunction b() {\n  return 2;\n};\n"
+  }
+ ]
+}

@@ -1,0 +1,92 @@
+{
+ "modelId": "glm-5.3-flash",
+ "contenderId": "pi-edit-guard",
+ "contenderVersion": "0.1.8",
+ "scenarioId": "formatter-drift",
+ "task": "Modify formatter-drift.ts in the current working directory. In the line containing 'opts.port ?? 8080', change 8080 to 9090. Use the provided tools.",
+ "startedAt": "2026-10-13T10:45:16.677Z",
+ "durationMs": 6689,
+ "tokensIn": 6887,
+ "tokensOut": 137,
+ "costUsd": 0.00110155,
+ "pass": true,
+ "outcome": "applied",
+ "readFirst": true,
+ "editedBlind": false,
+ "expectedContent": "function connect(opts) {\n    const host = opts.host;\n    const port = opts.port ?? 9090;\n    return { host, port };\n",
+ "actualContent": "function connect(opts) {\n    const host = opts.host;\n    const port = opts.port ?? 9090;\n    return { host, port };\n",
+ "messages": [
+  {
+   "role": "system",
+   "content": "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n- read: Read file contents\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- undo: Revert the most recent edit-tool change on a file\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\nUse read to examine files instead of cat or sed.\nUse edit for precise changes (edits[].oldText must match exactly)\nWhen changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\nEach edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\nKeep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\nIf edits[].oldText appears in more than one place, add an anchor: text copied verbatim from the file immediately above or below the lines being replaced — a heading, comment, or distinctive line. The anchor identifies which copy to change, so oldText can stay short and exact.\nFor renames where the same text appears in multiple places, set replaceAll: true to replace every occurrence in the file.\nWhen your last edit to a file turns out wrong, use undo to take it back instead of hand-reverting or rewriting the file.\n\nCurrent working directory: /tmp/pi-llm-bench-xhdO6p/pi-edit-guard-formatter-drift"
+  },
+  {
+   "role": "user",
+   "content": "Modify formatter-drift.ts in the current working directory. In the line containing 'opts.port ?? 8080', change 8080 to 9090. Use the provided tools."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "90dbbeb0-bfb6-4750-a553-91ec15626402",
+     "name": "read",
+     "arguments": "{\"path\":\"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "90dbbeb0-bfb6-4750-a553-91ec15626402",
+   "content": "function connect(opts) {\n  const host = opts.host;\n  const port = opts.port ?? 8080;\n  return { host, port };\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "5a969e4c-e1fb-4069-b00a-2f28f4cd70bf",
+     "name": "edit",
+     "arguments": "{\"edits\":[{\"newText\":\"?? 9090\",\"oldText\":\"?? 8080\"}],\"path\":\"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "5a969e4c-e1fb-4069-b00a-2f28f4cd70bf",
+   "content": "Error: [edit] The file has changed since you last read it; re-read the file and retry your edit with the current content."
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "c4181b7f-3f4a-4bf9-923f-cacfec12f789",
+     "name": "read",
+     "arguments": "{\"path\":\"formatter-drift.ts\"}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "c4181b7f-3f4a-4bf9-923f-cacfec12f789",
+   "content": "function connect(opts) {\n    const host = opts.host;\n    const port = opts.port ?? 8080;\n    return { host, port };\n"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "27f851a3-6a6a-4aa3-aff9-264f4a88aba9",
+     "name": "edit",
+     "arguments": "{\"path\":\"formatter-drift.ts\",\"edits\":[{\"newText\":\"?? 9090\",\"oldText\":\"?? 8080\"}]}"
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "toolCallId": "27f851a3-6a6a-4aa3-aff9-264f4a88aba9",
+   "content": "Successfully replaced 1 block(s) in formatter-drift.ts.\nApplied: 1 | Failed: 0 | Skipped: 0\n 1 function connect(opts) {\n 2     const host = opts.host;\n-3     const port = opts.port ?? 8080;\n+3     const port = opts.port ?? 9090;\n 4     return { host, port };"
+  }
+ ]
+}
