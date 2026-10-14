@@ -27,9 +27,12 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
   });
 
   // Paths whose CURRENT drifted state we already reacted to in tool_call.
-  // Keyed by the absolute path; cleaned up in tool_result so the map never
-  // grows unbounded.
+  // Keyed by lane (cwd) + raw path: concurrent lanes sharing one registry
+  // commonly edit the same RELATIVE filename in different directories, and
+  // a bare-path key would let one lane consume another's staleness flag.
+  // Cleaned up in tool_result so the map never grows unbounded.
   const staleOnToolCall = new Map<string, boolean>();
+  const laneKey = (path: string, cwd: string | undefined): string => (cwd ?? "") + "\0" + path;
 
   // Record reads when the read tool returns content; self-heal after the
   // agent's OWN successful edit/write so the registry can distinguish its
@@ -41,13 +44,14 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
   // this handler is the single chokepoint that observes every successful
   // mutation (edit/write/undo) exactly once — the executor ALSO refreshes,
   // so counting both would report each heal twice.
-  const selfRefreshTracked = (path: string): void => {
+  const selfRefreshTracked = (path: string, cwd: string | undefined): void => {
     // For edit: the executor already called selfRefresh before tool_result
     // fires, so isFresh would always be true.  Capture wasStale from the
     // tool_call phase instead.
     // For write/undo: no executor selfRefresh, so sampling now is correct.
-    const wasStale = staleOnToolCall.get(path) ?? !registry.isFresh(path);
-    registry.selfRefresh(path);
+    const key = laneKey(path, cwd);
+    const wasStale = staleOnToolCall.get(key) ?? !registry.isFresh(path, cwd);
+    registry.selfRefresh(path, cwd);
     if (wasStale) {
       telemetry.record({
         type: "stale_read.self_healed",
@@ -55,7 +59,7 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
         path,
       });
     }
-    staleOnToolCall.delete(path);
+    staleOnToolCall.delete(key);
   };
 
   pi.on("tool_result", async (event, ctx) => {
@@ -67,13 +71,13 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
     if (!input.path) return;
 
     if (event.toolName === "read") {
-      registry.record(input.path);
+      registry.record(input.path, ctx?.cwd);
     } else if (
       event.toolName === "edit" ||
       event.toolName === "write" ||
       event.toolName === "undo"
     ) {
-      selfRefreshTracked(input.path);
+      selfRefreshTracked(input.path, ctx?.cwd);
     }
   });
 
@@ -104,14 +108,14 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
           .filter((t) => t.length > 0)
       : [];
 
-    const error = registry.assertFresh(input.path, { oldTexts });
+    const error = registry.assertFresh(input.path, { oldTexts, cwd: ctx?.cwd });
     if (!error) return;
 
     // Record staleness for later telemetry emission in tool_result.
     // (assertFresh already called isFresh internally — we reuse the result
     // rather than double-statting the file.  staleRead.blocked is emitted
     // below; stale_read.self_healed is emitted in tool_result on success.)
-    staleOnToolCall.set(input.path, true);
+    staleOnToolCall.set(laneKey(input.path, ctx?.cwd), true);
 
     if (error.kind === "stale-read-warning") {
       // Advisory flows through to the tool result via getStaleWarning();
@@ -141,7 +145,7 @@ export function registerStaleReadObserver(pi: ExtensionAPI) {
   // count it was removed to prevent. record/isFresh stay as test conveniences.
   return {
     registry,
-    record: (path: string) => registry.record(path),
-    isFresh: (path: string) => registry.isFresh(path),
+    record: (path: string, cwd?: string) => registry.record(path, cwd),
+    isFresh: (path: string, cwd?: string) => registry.isFresh(path, cwd),
   };
 }

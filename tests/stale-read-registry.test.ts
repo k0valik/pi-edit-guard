@@ -432,3 +432,89 @@ describe("single-line safety is whole-line, not substring", () => {
     expect(registry.assertFresh(p, { oldTexts: ["aaa", "bbb"] })?.kind).toBe("stale-read");
   });
 });
+
+describe("ReadRegistry per-call cwd isolation", () => {
+  it("a lane switch does not mis-key another lane's record", () => {
+    // Mined from pi-edit-benchmark b3/insert-race: concurrent lanes share
+    // one registry. Lane B re-anchoring the shared baseDir must not disarm
+    // lane A's guard — per-call cwd keeps each lane's keys independent.
+    let mtimeA = 100;
+    const clock = { now: 1_000 };
+    const registry = new ReadRegistry({
+      now: () => clock.now,
+      stat: (p) => ({ mtimeMs: p.startsWith("/laneA/") ? mtimeA : 0 }),
+      toleranceMs: 50,
+    });
+    registry.record("f.txt", "/laneA"); // read at t=1000, mtime 100
+
+    // Lane B's activity re-anchors the shared fallback...
+    registry.setBaseDir("/laneB");
+
+    // ...but lane A's edit still resolves against ITS cwd and blocks.
+    mtimeA = 5000;
+    clock.now = 6000;
+    const blocked = registry.assertFresh("f.txt", {
+      cwd: "/laneA",
+      oldTexts: ["no-such-line-anywhere"],
+    });
+    expect(blocked?.kind).toBe("stale-read");
+  });
+
+  it("records under one cwd do not leak into another", () => {
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: 0 }),
+    });
+    registry.record("f.txt", "/laneA");
+    expect(registry.lastRead("f.txt", "/laneA")).toBe(1_000);
+    expect(registry.lastRead("f.txt", "/laneB")).toBeUndefined();
+    // Lane B never read: fresh there regardless of lane A's record.
+    expect(registry.isFresh("f.txt", "/laneB")).toBe(true);
+  });
+});
+
+describe("ReadRegistry unknown (unstatable) files", () => {
+  it("assertFresh advises instead of silently passing after stat starts failing", () => {
+    // Recorded read, then the file becomes unstattable (deleted, moved,
+    // permission loss — or resolved against the wrong directory, which is
+    // how the benchmark lanes silently disarmed the guard: stat ENOENT →
+    // mtime -1 → "fresh"). UNKNOWN must surface, never stay silent — and
+    // never hard-block (deleted-then-recreated flows stay usable; the
+    // executor surfaces the real file-not-found when genuinely gone).
+    let mtime = 100;
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: mtime }),
+      toleranceMs: 50,
+    });
+    registry.record("/repo/f.txt");
+
+    mtime = -1;
+    const outcome = registry.assertFresh("/repo/f.txt");
+    expect(outcome).not.toBeNull();
+    expect(outcome?.kind).toBe("stale-read-warning");
+  });
+
+  it("getStaleWarning surfaces the unknown state", () => {
+    let mtime = 100;
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: mtime }),
+      toleranceMs: 50,
+    });
+    registry.record("/repo/f.txt");
+
+    mtime = -1;
+    expect(registry.getStaleWarning("/repo/f.txt")).toContain("Could not verify");
+  });
+
+  it("never-read files stay silent even when unstatable (no data to judge)", () => {
+    const registry = new ReadRegistry({
+      now: () => 1_000,
+      stat: () => ({ mtimeMs: -1 }),
+      toleranceMs: 50,
+    });
+    expect(registry.assertFresh("/unread/f.txt")).toBeNull();
+    expect(registry.getStaleWarning("/unread/f.txt")).toBeNull();
+  });
+});

@@ -6,7 +6,7 @@
 //    and self-refreshes after a successful write (no globalThis bridge).
 
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, utimesSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, utimesSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -127,8 +127,9 @@ describe("edit tool stale-read warning", () => {
     expect(result.content[0]?.text).toContain("[WARNINGS]");
     expect(result.content[0]?.text).toContain("- [stale-read advisory]");
     // The tool forwards the call's search texts so the registry can gate
-    // the surface on verbatim-safety (formatter noise stays silent).
-    expect(getStaleWarning).toHaveBeenCalledWith(file, ["line1"]);
+    // the surface on verbatim-safety (formatter noise stays silent), plus
+    // the call cwd so resolution never depends on shared baseDir state.
+    expect(getStaleWarning).toHaveBeenCalledWith(file, ["line1"], dir);
   });
 
   it("does not append a warning when getStaleWarning returns null", async () => {
@@ -327,7 +328,7 @@ describe("stale-read hook — advisory passes, oldTexts forwarded", () => {
 
     expect(probe).toHaveBeenCalledTimes(1);
     const [, opts] = probe.mock.calls[0]!;
-    expect(opts).toEqual({ oldTexts: ["alpha", "beta"] });
+    expect(opts).toEqual({ oldTexts: ["alpha", "beta"], cwd: dir });
   });
 
   it("a verbatim-safe stale edit is NOT blocked on first contact", async () => {
@@ -500,5 +501,105 @@ describe("stale_read.self_healed telemetry gating", () => {
 
     const stats = telemetry.stats();
     expect(stats.staleReadSelfHealed).toBe(2); // incremented from 1 → 2
+  });
+});
+
+describe("stale-read hook — concurrent-lane isolation", () => {
+  it("lanes sharing one registry do not share staleness (same relative name)", async () => {
+    // Benchmark shape: concurrent lanes edit the same RELATIVE filename in
+    // different directories through one shared registry. Drift in lane A
+    // must block lane A while lane B passes unaffected.
+    const pi = createPiMock();
+    const _handles = registerStaleReadObserver(pi as unknown as ExtensionAPI);
+    const laneA = join(dir, "laneA");
+    const laneB = join(dir, "laneB");
+    mkdirSync(laneA, { recursive: true });
+    mkdirSync(laneB, { recursive: true });
+    writeFileSync(join(laneA, "f.txt"), "aaa\nbbb\nccc\n");
+    writeFileSync(join(laneB, "f.txt"), "aaa\nbbb\nccc\n");
+
+    // Lane A reads, then an external process drifts its file.
+    await pi.emit(
+      "tool_result",
+      { toolName: "read", isError: false, input: { path: "f.txt" } },
+      makeCtx({ cwd: laneA }),
+    );
+    writeFileSync(join(laneA, "f.txt"), "aaa\nbbb-x\nccc\n");
+    // Push the drift past the production tolerance (default 500ms) so the
+    // block is deterministic, not timing-dependent.
+    utimesSync(join(laneA, "f.txt"), new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
+
+    // Lane A's edit targets pre-drift content → hard block.
+    const blockedA = await pi.emit(
+      "tool_call",
+      {
+        toolName: "edit",
+        input: { path: "f.txt", edits: [{ oldText: "aaa\nbbb\nccc", newText: "CHANGED" }] },
+      },
+      makeCtx({ cwd: laneA }),
+    );
+    expect(blockedA).toMatchObject({ block: true });
+
+    // Lane B never drifted → passes through.
+    const passB = await pi.emit(
+      "tool_call",
+      {
+        toolName: "edit",
+        input: { path: "f.txt", edits: [{ oldText: "aaa\nbbb\nccc", newText: "CHANGED" }] },
+      },
+      makeCtx({ cwd: laneB }),
+    );
+    expect(passB).toBeUndefined();
+  });
+
+  it("the executor self-heal refreshes the registry through the tool wiring", async () => {
+    // Regression: registerEditTool passed `registry.selfRefresh` as a bare
+    // method reference; executeFile invokes the callback unbound, so the
+    // refresh threw (receiver undefined) and was swallowed — the executor
+    // self-heal silently never ran. Fake clock + fake stat make the refresh
+    // (or its absence) deterministically observable.
+    const pi = createPiMock();
+    const file = join(dir, "executor-heal.txt");
+    writeFileSync(file, "one\n");
+    let now = 1_000_000;
+    let mtime = 500_000;
+    const registry = new ReadRegistry({
+      now: () => now,
+      stat: () => ({ mtimeMs: mtime }),
+      readFile: () => readFileSync(file, "utf-8"),
+      toleranceMs: 0,
+      baseDir: dir,
+    });
+    registerEditTool(pi as unknown as ExtensionAPI, { registry });
+    registry.record(file); // baseline at t=1M
+
+    now = 2_000_000;
+    mtime = 1_500_000; // external drift
+    expect(registry.isFresh(file)).toBe(false);
+
+    const tool = pi.tools[0] as {
+      execute: (
+        id: string,
+        params: unknown,
+        signal: undefined,
+        onUpdate: undefined,
+        ctx: ReturnType<typeof makeCtx>,
+      ) => Promise<{
+        content: Array<{ text?: string }>;
+        details: Record<string, unknown>;
+      }>;
+    };
+    // Direct execute bypasses the tool_call hook (no block); the executor's
+    // own selfRefresh is the only thing that can re-baseline the registry.
+    await tool.execute(
+      "call-1",
+      { path: file, edits: [{ oldText: "one", newText: "ONE" }] },
+      undefined,
+      undefined,
+      makeCtx({ cwd: dir }),
+    );
+
+    expect(registry.lastRead(file)).toBe(2_000_000);
+    expect(registry.isFresh(file)).toBe(true);
   });
 });

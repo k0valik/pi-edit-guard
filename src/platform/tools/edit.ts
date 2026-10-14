@@ -85,8 +85,8 @@ function validateEditInput(input: EditInput): void {
 export interface EditToolOptions {
   /** Stale-read registry for post-write self-refresh (from the hook). */
   registry?: {
-    selfRefresh(path: string): void;
-    getStaleWarning(path: string, oldTexts?: string[]): string | null;
+    selfRefresh(path: string, cwd?: string): void;
+    getStaleWarning(path: string, oldTexts?: string[], cwd?: string): string | null;
   };
 }
 
@@ -182,17 +182,23 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
           // tool_call hook recorded. oldTexts gate the surface: a verbatim-
           // applicable splice proceeds silently (formatter drift elsewhere
           // is not this edit's problem); the advisory fires only when drift
-          // plausibly affects the search texts.
+          // plausibly affects the search texts. ctx.cwd is threaded per call
+          // so resolution never depends on the registry's shared baseDir
+          // anchor (concurrent lanes would otherwise mis-key each other).
           const staleWarning = options.registry?.getStaleWarning?.(
             path,
             edits
               .map((e) => (typeof e?.oldText === "string" ? e.oldText : ""))
               .filter((t) => t.length > 0),
+            ctx.cwd,
           );
 
           const result = await executeFile(path, edits, {
             cwd: ctx.cwd,
-            selfRefresh: options.registry?.selfRefresh,
+            // Arrow wrapper (not a bare method reference): the registry
+            // method needs its receiver, and executeFile invokes the
+            // callback unbound — a bare reference silently never refreshed.
+            selfRefresh: (p: string) => options.registry?.selfRefresh(p, ctx.cwd),
             coherenceCheckEnabled: getConfig().coherenceCheckEnabled,
           });
 
