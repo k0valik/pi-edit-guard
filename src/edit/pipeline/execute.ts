@@ -1,10 +1,12 @@
 /**
  * Per-file executor — the full edit pipeline for one file.
  *
- * Flow: read raw bytes → detect encoding/BOM/line-ending → LF-normalize →
- * autopatch (fix common oldText mistakes) → resolve (anchor + fuzzy chain
- * + uniqueness, two-pass incremental fallback) → apply (bottom-up splices)
- * → raw-splice back onto original bytes → atomic write (tmp + rename) →
+ * Flow: resolve symlink target + snapshot target metadata → reject
+ * non-regular files → read raw bytes → detect encoding/BOM/line-ending →
+ * LF-normalize → autopatch (fix common oldText mistakes) → resolve (anchor +
+ * fuzzy chain + uniqueness, two-pass incremental fallback) → apply (bottom-up
+ * splices) → raw-splice back onto original bytes → persist (safe-save sibling
+ * temp + rename for ordinary files, in-place overwrite for hardlinked files) →
  * coherence/corruption/semantic advisories → undo snapshot → diff/patch for
  * the tool layer. Partial-apply (some edits succeed, some fail) writes the
  * successful subset and reports both applied/failed sets. Post-write re-read
@@ -29,7 +31,10 @@
  */
 
 import {
+  accessSync,
   chmodSync,
+  chownSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -225,6 +230,14 @@ export function formatAlternatives(
     : "";
 }
 
+export interface FileStatLike {
+  mode?: number;
+  uid?: number;
+  gid?: number;
+  nlink?: number;
+  isFile?: () => boolean;
+}
+
 export interface ExecuteFileOptions {
   /** Working directory for relative paths. Defaults to process.cwd(). */
   cwd?: string;
@@ -234,10 +247,14 @@ export interface ExecuteFileOptions {
   exists?: (p: string) => boolean;
   mkdir?: (p: string, opts?: { recursive: boolean }) => void;
   unlink?: (p: string) => void;
-  /** Stat for capturing the original file mode (tmp+rename preservation). Defaults to statSync. */
-  stat?: (p: string) => { mode: number };
+  /** Stat for the persistence decision (mode/owner/link-count/file-type). Defaults to statSync. */
+  stat?: (p: string) => FileStatLike;
   /** Chmod for restoring the original mode on the tmp file before rename. Defaults to chmodSync. */
   chmod?: (p: string, mode: number) => void;
+  /** Chown for restoring tmp ownership before rename (best-effort). Defaults to chownSync. */
+  chown?: (p: string, uid: number, gid: number) => void;
+  /** Writability probe (commit-time). Defaults to accessSync(path, W_OK). */
+  access?: (p: string) => void;
   /** Lstat for detecting symlinks (rename must target the link target). Defaults to lstatSync. */
   lstat?: (p: string) => { isSymbolicLink(): boolean };
   /** Realpath for resolving symlink targets for the write path. Defaults to realpathSync. */
@@ -258,7 +275,7 @@ export interface ExecuteFileResult {
 }
 
 // Helper: restore the original file mode on the tmp file before rename.
-// Atomic tmp+rename writes replace the original inode, so without this the
+// Safe-save replacement replaces the original inode, so without this the
 // edited file inherits umask-derived permissions and loses the executable
 // bit (mined 2026-09-15: 755 -> 664). Best-effort: a chmod failure warns
 // rather than failing an otherwise good edit.
@@ -277,6 +294,162 @@ function preserveMode(
         mode.toString(8) +
         ") — the edited file may have lost its executable bit; restore with chmod if needed.",
     );
+  }
+}
+
+// Helper: restore the original file owner on the tmp file before rename.
+// Safe-save replacement creates the tmp as the current user, so editing a
+// file owned by someone else (e.g. root editing a user file, or vice versa
+// via sudo) would silently change ownership on rename. Compare the tmp's
+// actual owner (covers setgid-directory gid inheritance, containers, and
+// mocks) and chown only on mismatch. Best-effort like preserveMode.
+// Must run BEFORE chmod: chown can clear setuid/setgid on Linux.
+function preserveOwnership(
+  chown: (p: string, uid: number, gid: number) => void,
+  stat: (p: string) => FileStatLike,
+  tmpPath: string,
+  targetStat: FileStatLike | undefined,
+  postWriteWarnings: string[],
+): void {
+  const targetUid = targetStat?.uid;
+  const targetGid = targetStat?.gid;
+  if (targetUid === undefined || targetGid === undefined) return;
+  let tmpStat: FileStatLike;
+  try {
+    tmpStat = stat(tmpPath);
+  } catch {
+    return;
+  }
+  if (tmpStat.uid === undefined || tmpStat.gid === undefined) return;
+  if (tmpStat.uid === targetUid && tmpStat.gid === targetGid) return;
+  try {
+    chown(tmpPath, targetUid, targetGid);
+  } catch {
+    postWriteWarnings.push(
+      "[OWNERSHIP] Could not restore the original file owner (uid " +
+        targetUid +
+        ", gid " +
+        targetGid +
+        ") — the edited file may be owned by the current user; restore with chown if needed.",
+    );
+  }
+}
+
+// Thrown when the target fails the commit-time writability probe. Carries
+// the write path; the caller formats the user-facing message with the
+// original path. Separate from write-failed so the tool layer can surface
+// a chmod-style remediation instead of a generic write error.
+class NotWritableError extends Error {
+  readonly writePath: string;
+  constructor(writePath: string) {
+    super("not-writable");
+    this.name = "NotWritableError";
+    this.writePath = writePath;
+  }
+}
+
+function notWritableMessage(path: string): string {
+  return (
+    `Error: file is not writable: ${path} — ` +
+    "safe-save refuses to bypass file write permission via directory rename. " +
+    "Adjust permissions (e.g. chmod) if the edit is intended, then retry."
+  );
+}
+
+// Commit-time writability gate: safe-save must not circumvent a write
+// restriction that a normal in-place write would hit, using directory-level
+// rename permission to modify a read-only file. Runs only when there is
+// something to persist, so a read-only file with a nonmatching edit still
+// reports the (more useful) matching failure. ENOENT is ignored: with an
+// injected mock filesystem the read succeeds but no real file exists.
+function assertTargetWritable(access: (p: string) => void, writePath: string): void {
+  try {
+    access(writePath);
+  } catch (err) {
+    const code = (err as { code?: string } | null | undefined)?.code;
+    if (code === "ENOENT") return;
+    throw new NotWritableError(writePath);
+  }
+}
+
+export interface PersistEditedFileOptions {
+  writeFile: (p: string, data: Buffer | string) => void;
+  rename: (from: string, to: string) => void;
+  exists: (p: string) => boolean;
+  mkdir: (p: string, opts?: { recursive: boolean }) => void;
+  unlink: (p: string) => void;
+  stat: (p: string) => FileStatLike;
+  chmod: (p: string, mode: number) => void;
+  chown: (p: string, uid: number, gid: number) => void;
+  access: (p: string) => void;
+  writePath: string;
+  outputBuffer: Buffer;
+  targetStat: FileStatLike | undefined;
+  postWriteWarnings: string[];
+}
+
+/**
+ * Persist one fully-rendered output buffer, choosing the write strategy
+ * from the pre-read target metadata. Shared by the partial- and full-apply
+ * paths so they cannot diverge.
+ *
+ * - Commit-time W_OK probe first (no permission bypass via rename).
+ * - nlink > 1: in-place overwrite to preserve hard-link identity + warning.
+ * - Otherwise: safe-save sibling-temp + best-effort chown + chmod + rename.
+ *
+ * Safe-save provides atomic pathname replacement but not crash durability:
+ * the temp file and parent directory are intentionally not fsynced. This
+ * protects against interrupted process-level writes, not power loss.
+ */
+async function persistEditedFile(o: PersistEditedFileOptions): Promise<void> {
+  assertTargetWritable(o.access, o.writePath);
+
+  if (o.targetStat?.nlink !== undefined && o.targetStat.nlink > 1) {
+    o.writeFile(o.writePath, o.outputBuffer);
+    o.postWriteWarnings.push(
+      "[NON-ATOMIC WRITE] The file has multiple hard links, so the edit was written " +
+        "directly to preserve inode/link identity. The write was not atomic; re-read the " +
+        "file to confirm the result if another process may have written concurrently.",
+    );
+    return;
+  }
+
+  const dir = o.writePath.split(/[\\/]/).slice(0, -1).join("/") || ".";
+  try {
+    if (!o.exists(dir)) o.mkdir(dir, { recursive: true });
+  } catch {
+    // Best-effort; writeFile below will surface real errors.
+  }
+
+  const tmpPath = `${dir}/.edit-guard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    o.writeFile(tmpPath, o.outputBuffer);
+    preserveOwnership(o.chown, o.stat, tmpPath, o.targetStat, o.postWriteWarnings);
+    preserveMode(
+      o.chmod,
+      tmpPath,
+      o.targetStat?.mode !== undefined ? o.targetStat.mode & 0o7777 : undefined,
+      o.postWriteWarnings,
+    );
+    await renameWithLockRetry(
+      o.rename,
+      o.writeFile,
+      o.unlink,
+      tmpPath,
+      o.writePath,
+      o.outputBuffer,
+      o.postWriteWarnings,
+    );
+  } catch (err) {
+    if (err instanceof NotWritableError) throw err;
+    // Clean up the temp file (unlink, not truncate — the old code left
+    // empty `.patch-tool-*.tmp` files behind in target directories).
+    try {
+      if (o.exists(tmpPath)) o.unlink(tmpPath);
+    } catch {
+      // ignore cleanup errors
+    }
+    throw err;
   }
 }
 
@@ -337,11 +510,13 @@ async function renameWithLockRetry(
 
 /**
  * Execute a batch of edits against one file. Resolves the path against cwd,
- * reads raw bytes, detects encoding, strips the BOM, normalizes line endings
- * for matching, resolves every edit (multi-pass chain + anchor window), applies,
- * splices the normalized result back onto the ORIGINAL bytes (untouched
- * regions keep their exact bytes — mixed line endings survive), restores the
- * BOM, and writes atomically via tmp-file + rename.
+ * snapshots target metadata, reads raw bytes, detects encoding, strips the
+ * BOM, normalizes line endings for matching, resolves every edit (multi-pass
+ * chain + anchor window), applies, splices the normalized result back onto
+ * the ORIGINAL bytes (untouched regions keep their exact bytes — mixed line
+ * endings survive), restores the BOM, and persists via safe-save (sibling
+ * temp + rename) for ordinary files or in-place overwrite for hardlinked
+ * files.
  *
  * Success details also carry `baseContent`/`newContent` (the LF-normalized
  * pre/post-edit content, BOM-free) so the tool layer can build native-shape
@@ -360,6 +535,8 @@ export async function executeFile(
   const unlink = opts.unlink ?? unlinkSync;
   const stat = opts.stat ?? statSync;
   const chmod = opts.chmod ?? chmodSync;
+  const chown = opts.chown ?? chownSync;
+  const access = opts.access ?? ((p: string) => accessSync(p, constants.W_OK));
   const lstat = opts.lstat ?? lstatSync;
   const realpath = opts.realpath ?? realpathSync;
 
@@ -375,6 +552,52 @@ export async function executeFile(
       };
     }
 
+    // 0. Resolve the real write target + snapshot its metadata BEFORE
+    // reading. Symlink parity: native fsWriteFile writes THROUGH symlinks,
+    // preserving the link; tmp+rename over the link path would REPLACE the
+    // symlink with a regular file. Reads and stat already follow links, so
+    // only the write side needs the resolved target. Best-effort: mocked
+    // filesystems throw, and a broken link fails the read below — fall back
+    // to the link path and let the read surface the real error. Ordering
+    // matters: a FIFO/socket/device must be rejected by the isFile gate
+    // below without blocking on read first.
+    let writePath = resolvedPath;
+    try {
+      if (lstat(resolvedPath).isSymbolicLink()) {
+        try {
+          writePath = realpath(resolvedPath);
+        } catch {
+          writePath = resolvedPath;
+        }
+      }
+    } catch {
+      writePath = resolvedPath;
+    }
+
+    // Snapshot mode/owner/link-count/file-type for the persistence decision.
+    // Best-effort: stat fails for injected mock filesystems — targetStat
+    // stays undefined and persistence proceeds as single-link regular.
+    let targetStat: FileStatLike | undefined;
+    try {
+      targetStat = stat(writePath);
+    } catch {
+      targetStat = undefined;
+    }
+
+    // edit edits regular files only: a FIFO, socket, or device node is not
+    // a text file with quirks — writing reconstructed text to it can block
+    // or talk to another process. Fail closed before reading.
+    if (targetStat && typeof targetStat.isFile === "function" && !targetStat.isFile()) {
+      const message =
+        `Error: refusing to edit non-regular file: ${path} — ` +
+        "edit only supports regular files.";
+      return {
+        content: [{ type: "text", text: message }],
+        isError: true,
+        details: { error: "non-regular-file", path, message },
+      };
+    }
+
     // 1. Read file content (raw bytes → detect encoding → decode)
     let rawBuffer: Buffer;
     let encoding: "utf-8" | "latin1";
@@ -387,33 +610,6 @@ export async function executeFile(
         isError: true,
         details: { error: "file-not-found", path },
       };
-    }
-
-    // Capture the original permission bits so the tmp+rename write paths
-    // below can restore them (rename replaces the inode, and the tmp file
-    // otherwise inherits umask-derived permissions). Best-effort: stat also
-    // fails for injected mock filesystems, leaving the mode undefined.
-    let originalMode: number | undefined;
-    try {
-      originalMode = stat(resolvedPath).mode & 0o7777;
-    } catch {
-      originalMode = undefined;
-    }
-
-    // Symlink parity: native fsWriteFile writes THROUGH symlinks, preserving
-    // the link. tmp+rename over the link path would REPLACE the symlink with
-    // a regular file (target keeps stale content, link destroyed). Reads and
-    // stat already follow links, so only the write side needs the target.
-    // Best-effort like the mode capture: mocked filesystems throw, and a
-    // broken link already failed the read above — fall back to the link path
-    // and let the write surface the real error.
-    let writePath = resolvedPath;
-    try {
-      if (lstat(resolvedPath).isSymbolicLink()) {
-        writePath = realpath(resolvedPath);
-      }
-    } catch {
-      writePath = resolvedPath;
     }
 
     const rawContent = rawBuffer.toString(encoding);
@@ -592,28 +788,24 @@ export async function executeFile(
       const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
       const placementWarnings = buildAutoExpandWarnings(diagnostics);
 
-      const dir = writePath.split(/[\\/]/).slice(0, -1).join("/") || ".";
-      try {
-        if (!exists(dir)) mkdir(dir, { recursive: true });
-      } catch {
-        // Best-effort; writeFileSync below will surface real errors.
-      }
-
-      const tmpPath = `${dir}/.edit-guard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`;
       const postWriteWarnings: string[] = [];
       try {
         const outputBuffer = Buffer.from(newContent, encoding);
-        writeFile(tmpPath, outputBuffer);
-        preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
-        await renameWithLockRetry(
-          rename,
+        await persistEditedFile({
           writeFile,
+          rename,
+          exists,
+          mkdir,
           unlink,
-          tmpPath,
+          stat,
+          chmod,
+          chown,
+          access,
           writePath,
           outputBuffer,
+          targetStat,
           postWriteWarnings,
-        );
+        });
 
         // Best-effort post-write re-read verification (see the full-apply
         // path): runs unconditionally, never blocks the result.
@@ -633,10 +825,13 @@ export async function executeFile(
           // best-effort
         }
       } catch (err) {
-        try {
-          if (exists(tmpPath)) unlink(tmpPath);
-        } catch {
-          // ignore cleanup errors
+        if (err instanceof NotWritableError) {
+          const message = notWritableMessage(path);
+          return {
+            content: [{ type: "text", text: message }],
+            isError: true,
+            details: { error: "not-writable", path, message },
+          };
         }
         return {
           content: [
@@ -745,29 +940,26 @@ export async function executeFile(
     const confusableWarnings = buildConfusableWarnings(result.applied, normContent);
     const placementWarnings = buildAutoExpandWarnings(outcome.diagnostics ?? []);
 
-    // 6. Atomic write: temp file + rename in the same directory
-    const dir = writePath.split(/[\\/]/).slice(0, -1).join("/") || ".";
-    try {
-      if (!exists(dir)) mkdir(dir, { recursive: true });
-    } catch {
-      // Best-effort; writeFileSync below will surface real errors.
-    }
-
-    const tmpPath = `${dir}/.edit-guard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`;
+    // 6. Persist: safe-save (sibling temp + rename) for ordinary files,
+    // in-place overwrite for hardlinked files (see persistEditedFile).
     const postWriteWarnings: string[] = [];
     try {
       const outputBuffer = Buffer.from(newContent, encoding);
-      writeFile(tmpPath, outputBuffer);
-      preserveMode(chmod, tmpPath, originalMode, postWriteWarnings);
-      await renameWithLockRetry(
-        rename,
+      await persistEditedFile({
         writeFile,
+        rename,
+        exists,
+        mkdir,
         unlink,
-        tmpPath,
+        stat,
+        chmod,
+        chown,
+        access,
         writePath,
         outputBuffer,
+        targetStat,
         postWriteWarnings,
-      );
+      });
 
       // Best-effort post-write re-read verification. Surfaces a warning if
       // on-disk bytes differ from expected output. Runs unconditionally —
@@ -786,12 +978,13 @@ export async function executeFile(
         // best-effort
       }
     } catch (err) {
-      // Clean up the temp file (unlink, not truncate — the old code left
-      // empty `.patch-tool-*.tmp` files behind in target directories).
-      try {
-        if (exists(tmpPath)) unlink(tmpPath);
-      } catch {
-        // ignore cleanup errors
+      if (err instanceof NotWritableError) {
+        const message = notWritableMessage(path);
+        return {
+          content: [{ type: "text", text: message }],
+          isError: true,
+          details: { error: "not-writable", path, message },
+        };
       }
       return {
         content: [
