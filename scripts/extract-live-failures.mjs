@@ -165,7 +165,14 @@ function categorize(args, resultText) {
     const nestedPaths = collectNestedPaths(args);
     if (nestedPaths.length > 0) return "validation-nested-path";
   }
-  if (typeof args.edits === "string" && /\/edits: must be array/.test(resultText)) {
+  if (
+    typeof args.edits === "string" &&
+    (/\/edits: must be array/.test(resultText) || /edits\.\d+: must be object/.test(resultText))
+  ) {
+    // `edits.N: must be object` is what native answers when the model sent a
+    // JSON-STRING `edits` value (observed: glm-5.3 session 2026-11-21, 7
+    // calls, retried byte-identical) — same category, the string is the
+    // failure mode.
     return "validation-edits-string";
   }
   if (resultText.includes("results in no change")) return "already-applied-noop";
@@ -173,6 +180,41 @@ function categorize(args, resultText) {
   if (resultText.includes("anchor not found")) return "anchor-not-found";
   if (resultText.includes("SEARCH text not found")) return "not-found";
   return null;
+}
+
+/**
+ * Extract oldText values from a raw (possibly malformed) JSON-string
+ * `edits` value, for snapshot-needle selection only — NOT a repair. Scans
+ * for `oldText":` key positions (with or without the opening quote, the
+ * observed missing-key-quote corruption) and reads the JSON string value
+ * that follows. Fail-closed: unfindable values are simply not needles.
+ */
+function rawEditsStringNeedles(raw) {
+  const needles = [];
+  let idx = 0;
+  while (true) {
+    const hit = raw.indexOf('oldText":', idx);
+    if (hit === -1) break;
+    let i = hit + 'oldText":'.length;
+    while (i < raw.length && /\s/.test(raw[i])) i++;
+    if (raw[i] === '"') {
+      let j = i + 1;
+      while (j < raw.length) {
+        if (raw[j] === "\\") j += 2;
+        else if (raw[j] === '"') break;
+        else j++;
+      }
+      if (raw[j] === '"') {
+        try {
+          needles.push(JSON.parse(raw.slice(i, j + 1)));
+        } catch {
+          // not a clean string literal — skip this candidate
+        }
+      }
+    }
+    idx = hit + 1;
+  }
+  return needles;
 }
 
 function collectNestedPaths(args) {
@@ -418,6 +460,13 @@ function extract(sessions = SESSIONS) {
       const newNeedles = edits.map((e) => e.newText).filter((s) => typeof s === "string");
       let reconNeedles = oldNeedles;
       if (category === "already-applied-noop") reconNeedles = newNeedles;
+      if (typeof args.edits === "string") {
+        // Stringified-edits calls carry no parsed entries — derive needles
+        // from the raw string so snapshot selection stays needle-driven: a
+        // stale or partial read that lacks the oldText cannot back a
+        // replay fixture and must drop instead of silently passing.
+        reconNeedles = rawEditsStringNeedles(args.edits);
+      }
 
       // Only reads strictly before the call are legitimate pre-state.
       const beforeLine = call.line;

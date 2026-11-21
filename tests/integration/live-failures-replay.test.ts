@@ -84,7 +84,7 @@ async function runPrepared(
   preparedPath: string,
   preparedEdits: Array<{ oldText: string; newText: string; anchor?: string }>,
   fileContent: string,
-): Promise<{ isError: boolean; text: string }> {
+): Promise<{ isError: boolean; text: string; passName: string | undefined }> {
   const fs = new InMemoryFS();
   const absolute = isAbsolute(preparedPath) ? preparedPath : "/repo/" + preparedPath;
   fs.writeFile(absolute, fileContent);
@@ -98,12 +98,20 @@ async function runPrepared(
       mkdir: (p) => fs.mkdir(p),
       unlink: (p) => fs.unlink(p),
     });
+    const diagnostics = (
+      result.details as { diagnostics?: Array<{ match?: { passName?: string } }> }
+    ).diagnostics;
     return {
       isError: result.isError,
       text: result.content.map((c) => c.text || "").join("\n"),
+      passName: diagnostics?.[0]?.match?.passName,
     };
   } catch (err) {
-    return { isError: true, text: err instanceof Error ? err.message : String(err) };
+    return {
+      isError: true,
+      text: err instanceof Error ? err.message : String(err),
+      passName: undefined,
+    };
   }
 }
 
@@ -418,6 +426,27 @@ describe("old-era wild failures — proof by replay", () => {
         f.fileContent!,
       );
       expect(outcome.isError, outcome.text).toBe(false);
+    });
+  }
+  // Native exact-match not-found (glm-5.3 via the built-in edit,
+  // 2026-11-21): schema-valid call whose oldText hallucinated two extra
+  // comment lines absent from the file (~86% similarity, 2-line offset).
+  // Native answered "Could not find the exact text"; the context_aware pass
+  // resolves the drift and applies. Drifted oldText defeats verbatim needle
+  // reconstruction, so this fixture is hand-curated (see _note).
+  for (const f of fixtures.filter((x) => x.category === "not-found")) {
+    it(`${f.name}: context_aware rescues drifted oldText that native exact-match rejected`, async () => {
+      repairLifecycle.clear();
+      const raw = rawArgsFor(f);
+      expect(Value.Check(EDIT_SCHEMA, raw)).toBe(true); // schema-valid; failure was match-level
+
+      const prepared = prepareEditArguments(raw) as Static<typeof EDIT_SCHEMA>;
+      expect(Value.Check(EDIT_SCHEMA, prepared)).toBe(true);
+
+      const outcome = await runPrepared(prepared.path, prepared.edits as any, f.fileContent!);
+      expect(outcome.isError, outcome.text).toBe(false);
+      expect(outcome.text).toContain("Patched");
+      expect(outcome.passName).toBe("context_aware");
     });
   }
 });

@@ -118,6 +118,11 @@ function lenientParseAttempts(str: string): string[] {
   return [
     str,
     fixJsonNewlines(str),
+    // Missing OPENING quotes on keys must be repaired BEFORE under-escaping:
+    // for that corruption the under-escape rounds produce a wrong-but-valid
+    // parse (oldText's content glued into the newText value) that
+    // short-circuits the chain and buries the intended edit.
+    repairMissingKeyQuotes(str),
     // Under-escaping must be repaired BEFORE punctuation cleanup: a dropped
     // "dangling fragment" may actually be string content once the missing
     // backslash restores the intended string boundary.
@@ -136,6 +141,96 @@ function jsonParseWithNewlineFix(str: string): unknown {
     }
   }
   return undefined;
+}
+
+/**
+ * Repair a missing OPENING quote on an object key: a model hand-writing a
+ * JSON-stringified `edits` value drops the quote before a key, producing
+ * `[{"newText":"AAA",oldText":"BBB"}]` — parse fails at the bare
+ * identifier. Observed in the wild (glm-5.3, 7 calls in one 2026-11-21
+ * session; native answered `edits.0: must be object` and the model retried
+ * byte-identical args). At a key position a bare identifier immediately
+ * followed by `":` can never be valid JSON, so re-quoting the identifier is
+ * the only sensible reading; any other shape is left untouched and the
+ * caller still gates acceptance on a full JSON.parse downstream.
+ */
+export function repairMissingKeyQuotes(str: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  const stack: Array<{ kind: "obj" | "arr"; expectKey: boolean }> = [];
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i]!;
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      const top = stack[stack.length - 1];
+      if (top?.kind === "obj" && top.expectKey) top.expectKey = false; // key done
+      continue;
+    }
+    if (ch === "{") {
+      stack.push({ kind: "obj", expectKey: true });
+      out += ch;
+      continue;
+    }
+    if (ch === "[") {
+      stack.push({ kind: "arr", expectKey: false });
+      out += ch;
+      continue;
+    }
+    if (ch === "}" || ch === "]") {
+      const top = stack.pop();
+      // A closer must match the frame it closes; mismatch means a different
+      // corruption (e.g. premature string close left debris) — not ours.
+      if (!top || (ch === "}" ? top.kind !== "obj" : top.kind !== "arr")) return str;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      const top = stack[stack.length - 1];
+      if (top?.kind === "obj") top.expectKey = true;
+      out += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      out += ch;
+      continue;
+    }
+
+    // Unrecognized structural token. When a KEY is expected and an
+    // identifier + closing quote + colon follows, re-quote the identifier.
+    const top = stack[stack.length - 1];
+    if (top?.kind === "obj" && top.expectKey && /[A-Za-z_$]/.test(ch)) {
+      let j = i + 1;
+      while (j < str.length && /[A-Za-z0-9_$]/.test(str[j]!)) j++;
+      let k = j + 1;
+      while (k < str.length && /\s/.test(str[k]!)) k++;
+      if (str[j] === '"' && str[k] === ":") {
+        // The repaired key is complete: opening quote + identifier + closing
+        // quote, all emitted inline. Resume right AFTER it so the colon and
+        // the value flow through the scanner in their normal roles —
+        // resuming AT the closing quote would flip the scanner into string
+        // mode at the wrong place and desync the frame stack.
+        out += `"${str.slice(i, j)}"`;
+        top.expectKey = false;
+        i = j;
+        continue;
+      }
+    }
+
+    // Any other bare token (numbers, true/false/null, debris) belongs to a
+    // different corruption — leave it for the other attempts.
+    out += ch;
+  }
+  return out;
 }
 
 /**

@@ -25,6 +25,13 @@
 
 ### Fixed
 
+- `edit`: stringified `edits` payloads whose JSON is missing the OPENING quote on a key
+  (`[{"newText":"AAA",oldText":"BBB"}]` — observed live, glm-5.3, 7 calls in one session;
+  native answered `edits.0: must be object`) now repair deterministically via a new
+  `repairMissingKeyQuotes` lenient parse attempt. It runs before the under-escape repair,
+  which for this corruption produced a wrong-but-valid parse (oldText's content glued into
+  the newText value) surfacing as a misleading `must have required properties oldText`
+  schema error that drove byte-identical retries.
 - `edit`: a classified target that vanishes between stat and commit now
   fails with `file-not-found` instead of silently resurrecting a deleted
   pathname via tmp+rename or the hardlink direct write; an unstattable temp

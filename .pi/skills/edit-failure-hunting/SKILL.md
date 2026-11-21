@@ -40,7 +40,7 @@ one testable change.
 | Stage                        | File                                                    | Handles                                                                                                                                                                                                                                                                      |
 | ---------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Envelope decode / truncation | `src/core/repair/envelope.ts`                           | JSON-stringified root args, truncated objects                                                                                                                                                                                                                                |
-| Argument preprocessors       | `src/core/prepare-arguments.ts` (`PREPROCESSORS`)       | stringified `edits`, empty-string AND empty-object entries, field aliases, nested-path hoist, oldText-only deletion inference, flat-fold                                                                                                                                     |
+| Argument preprocessors       | `src/repair/entry.ts` (`PREPROCESSORS`)                 | stringified `edits` (lenient parse chain incl. missing-key-quote re-quoting P8), empty-string AND empty-object entries, field aliases, nested-path hoist, oldText-only deletion inference, flat-fold                                                                         |
 | Schema repair engine         | `src/core/repair/repair-engine.ts`                      | alias rename, null-drop, wrap-bare-string, retry message                                                                                                                                                                                                                     |
 | Unrepairable enrichment      | `describeUnrepairableEditInput` in prepare-arguments.ts | targeted guidance appended to validation errors (nested-path conflict, bad JSON string)                                                                                                                                                                                      |
 | 14-pass matching chain       | `src/core/edit/passes.ts` (`REPLACER_CHAIN`)            | simple -> line_trimmed -> whitespace_normalized -> indentation_flexible -> escape_normalized -> unicode_normalized -> block_anchor -> block_anchor_levenshtein -> fuzzy_boundary -> trimmed_boundary -> context_aware -> robust_trimmed -> robust_backslash -> token_overlap |
@@ -160,6 +160,40 @@ nothing)` in a partial apply. This model coped, but the message taught
   validation message to name the `anchor` field (`...use the anchor field
 instead of a no-op edit.`), with no content echoed. Keeps the legacy
   `identical` / `does nothing` wording so existing matchers still hit.
+
+### P8 — stringified `edits` with a missing OPENING quote on the key (glm-5.3, mined 2026-11-21)
+
+- Shape: `{"path": "f.ts", "edits": "[{\"newText\":\"AAA\",oldText\":\"BBB\"}]"}` — the whole `edits`
+  array double-encoded as a JSON string AND the key after the long value missing its opening
+  quote (a single dropped `"`), always `oldText`. 7 calls in one session; native answered
+  `Validation failed for tool "edit": - edits.0: must be object`, which names neither the
+  stringification nor the corruption — the model retried byte-identically (2 pairs observed),
+  then self-healed by re-sending a proper array or switching tools.
+- The model's own theory ("comment text with special characters or just payload size") was
+  wrong: a 10.6 KB well-formed call succeeded while a 544-byte corrupted one failed. The
+  corruption is content-deterministic (same payload → same mangling), pointing at the provider
+  tool-call serialization layer, not at pi or the edit tool. Session JSONL only stores the final
+  assembled args — raw streaming deltas would be needed to prove template-vs-serving cause.
+- Fix: `repairMissingKeyQuotes` (`src/repair/entry.ts`) — string-context-aware scanner
+  re-quotes a bare identifier at a key position when immediately followed by `":`. Runs BEFORE
+  `repairUnderEscapedQuotes` in `lenientParseAttempts`: for this corruption the under-escape
+  rounds produce a wrong-but-valid parse (oldText's content glued into the newText value) that
+  short-circuits the chain behind a misleading `must have required properties oldText` error.
+  The scanner returns its input unchanged on frame-stack mismatch — premature-close debris is
+  the under-escape attempt's shape, not ours.
+- Pitfall learned implementing it: after emitting the repaired key inline, resume AFTER its
+  closing quote. Resuming AT it flips the scanner into string mode at the wrong boundary,
+  desyncs the frame stack, and makes multi-entry payloads bail (single-entry ones only got
+  lucky through brace-balanced value content).
+- Fixtures: `blackhole-dev-mustbeobject-178-*` and `-313-*` (`validation-edits-string`; the
+  extractor now recognizes `edits.N: must be object` and derives needles from the raw string
+  via `rawEditsStringNeedles`, so stale/partial snapshots drop honestly). 3 further calls
+  unextractable: 2 files never read in-session, 1 targeted the post-edit state of an
+  intervening successful edit (needs native-edit replay reconstruction).
+- Same session's 8th failure: a schema-valid call with hallucinated comment lines (~86%
+  similarity) that native rejected with `Could not find the exact text` — the `context_aware`
+  pass rescues it; hand-curated fixture `blackhole-dev-mustbeobject-309-b65d5-notfound`
+  (category `not-found`) pins the rescue with a `passName` assertion.
 
 ### Self-documenting failures (2026-08-25+)
 
@@ -287,6 +321,7 @@ grep -c 'must have required propert' $S        # missing fields
 grep -c 'SEARCH text not found' $S             # match failures
 grep -c 'results in no change' $S              # noop confusion
 grep -c 'anchor not found' $S                  # anchor failures
+grep -c 'must be object' $S                  # stringified+corrupt edits (P8)
 ```
 
 Hard-won pitfalls:

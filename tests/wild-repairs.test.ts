@@ -3,6 +3,7 @@ import {
   prepareEditArguments,
   describeUnrepairableEditInput,
   repairJsonPunctuation,
+  repairMissingKeyQuotes,
   repairLifecycle,
 } from "../src/repair/entry.js";
 
@@ -95,6 +96,78 @@ describe("repairJsonPunctuation (in-the-wild: step-3.7-flash stringified edits)"
   it("leaves valid JSON untouched", () => {
     const raw = '{"edits":[{"oldText":"a, b] c","newText":"d"}]}';
     expect(repairJsonPunctuation(raw)).toBe(raw);
+  });
+});
+
+describe("repairMissingKeyQuotes (in-the-wild: glm-5.3 stringified edits, 2026-11-21)", () => {
+  beforeEach(() => repairLifecycle.clear());
+
+  it("re-quotes a bare key after a value (the observed oldText shape)", () => {
+    const raw = '[{"newText":"AAA",oldText":"BBB"}]';
+    const repaired = repairMissingKeyQuotes(raw);
+    expect(repaired).toBe('[{"newText":"AAA","oldText":"BBB"}]');
+    expect(JSON.parse(repaired)).toEqual([{ newText: "AAA", oldText: "BBB" }]);
+  });
+
+  it("repairs every corrupted key in one pass (multi-entry payload)", () => {
+    const raw = '[{"newText":"a",oldText":"b"}, {"newText":"c",oldText":"d"}]';
+    expect(JSON.parse(repairMissingKeyQuotes(raw))).toEqual([
+      { newText: "a", oldText: "b" },
+      { newText: "c", oldText: "d" },
+    ]);
+  });
+
+  it("repairs a missing quote on the FIRST key of an object", () => {
+    const raw = '[{oldText":"a", "newText":"b"}]';
+    expect(JSON.parse(repairMissingKeyQuotes(raw))).toEqual([{ oldText: "a", newText: "b" }]);
+  });
+
+  it("tolerates the observed spacing variant (space after the colon)", () => {
+    const raw = '[{"newText": "AAA",oldText": "BBB"}]';
+    expect(JSON.parse(repairMissingKeyQuotes(raw))).toEqual([{ newText: "AAA", oldText: "BBB" }]);
+  });
+
+  it("never inserts quotes inside string literals", () => {
+    // The newText value itself contains an `oldText":`-lookalike, escaped as
+    // in the wild payloads — the scanner must stay in string mode there and
+    // only repair the structural corruption after the value.
+    const raw = `[{"newText":"text with oldText\\": inside",oldText":"BBB"}]`;
+    const parsed = JSON.parse(repairMissingKeyQuotes(raw)) as Array<Record<string, string>>;
+    expect(parsed[0]?.newText).toBe('text with oldText": inside');
+    expect(parsed[0]?.oldText).toBe("BBB");
+  });
+
+  it("leaves bare identifiers at value positions alone (fail closed)", () => {
+    const raw = '[{"newText":bare"}]';
+    expect(repairMissingKeyQuotes(raw)).toBe(raw);
+  });
+
+  it("leaves identifiers without an abutting closing quote alone", () => {
+    const raw = '[{"newText":"a",oldText :"b"}]';
+    expect(repairMissingKeyQuotes(raw)).toBe(raw);
+  });
+
+  it("returns the input unchanged on closer/stack mismatch (under-escape debris)", () => {
+    // Premature string close leaves the frame stack desynced — a different
+    // corruption; the under-escape attempt owns this shape.
+    const raw = '[{"newText":"glob ts"],"oldText":"b"}]';
+    expect(repairMissingKeyQuotes(raw)).toBe(raw);
+  });
+
+  it("is a no-op on valid JSON", () => {
+    const raw = '{"edits":[{"oldText":"a","newText":"b"}]}';
+    expect(repairMissingKeyQuotes(raw)).toBe(raw);
+  });
+
+  it("wins over the under-escape glue: pipeline yields separate oldText/newText", () => {
+    // Reduced from the wild glm-5.3 session: without the missing-key pass
+    // the under-escape rounds produced a wrong-but-valid parse gluing
+    // oldText's content into the newText value.
+    const raw = '[{"newText":"const a = 1;",oldText":"const a = 2;"}]';
+    const prepared = prepareEditArguments({ path: "x.ts", edits: raw }) as {
+      edits: Array<{ oldText: string; newText: string }>;
+    };
+    expect(prepared.edits).toEqual([{ newText: "const a = 1;", oldText: "const a = 2;" }]);
   });
 });
 

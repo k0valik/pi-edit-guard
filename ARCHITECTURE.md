@@ -106,8 +106,10 @@ failures carry an FNV-1a fingerprint of the failure shape for per-model regressi
    truncated-envelope completion candidates are tried first when the policy allows.
 2. **Preprocessors** (`preprocess.ts` driver; edit rules defined in `entry.ts`), in order:
    - `parse-stringified-edits` — JSON string → array, tolerating literal newlines (`fixJsonNewlines`), repairing
-     under-escaped quotes guided by `JSON.parse` error positions (≤5 rounds) and punctuation debris (trailing
-     commas, short dangling fragments ≤ 18 chars).
+     missing opening quotes on keys (`repairMissingKeyQuotes`, glm-5.3 2026-11-21: the under-escape repair
+     alone glued oldText's content into newText as a wrong-but-valid parse), under-escaped quotes guided by
+     `JSON.parse` error positions (≤5 rounds) and punctuation debris (trailing commas, short dangling
+     fragments ≤ 18 chars).
    - `filter-empty-edits` — drop `""` entries from `edits[]`.
    - `drop-empty-edit-objects` — drop `{}` placeholders (if all entries were empty, downstream min-items fails
      honestly instead of emitting phantom property noise).
