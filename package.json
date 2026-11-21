@@ -61,7 +61,7 @@
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@earendil-works/pi-tui": "1.1.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "diff": "8.0.4",
     "jiti": "^2.7.0",
     "lint-staged": "^17.0.8",
