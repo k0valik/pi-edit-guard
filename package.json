@@ -68,7 +68,7 @@
     "oxfmt": "^0.79.0",
     "oxlint": "^1.70.0",
     "simple-git-hooks": "^2.14.0",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typebox": "1.4.7",
     "typescript": "^7.0.0",
     "vitest": "^5.1.0"
