@@ -68,7 +68,7 @@ What this means:
 - The full `description` and the `parameters` schema are **not** in the
   system prompt. They go in the tool block sent to the LLM API.
 - If a tool has no `promptSnippet`, it does not appear in the `Available
-tools:` list at all (the comment at line 48-49 says so explicitly: _"A tool
+  tools:` list at all (the comment at line 48-49 says so explicitly: _"A tool
   appears in Available tools only when the caller provides a one-line
   snippet."_). It can still be used; the model just doesn't see it announced
   in the system prompt.

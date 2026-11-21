@@ -139,7 +139,7 @@ tests + fixtures on this branch.
 - Fix (advisory, non-blocking): the resolve stage records the confirmed
   occurrence count (`diag.ambiguousMatchCount`) + lineRange; the executor
   surfaces short `[AMBIGUOUS PLACEMENT] edits[i] matched N times; placed at
-line L via auto-expand — verify the intended site.` warnings (result text
+  line L via auto-expand — verify the intended site.` warnings (result text
   - `details.placementWarnings` + tool-layer `[WARNINGS]` +
     `guard.placementWarnings`). Fires ONLY when count > 1, never on unique
     matches. Line numbers only, no content echoed.
@@ -154,11 +154,11 @@ line L via auto-expand — verify the intended site.` warnings (result text
 
 - Shape: `edits[0]` sent with oldText == newText as a placeholder anchor for
   a second edit's merge site; the pipeline reported `noop (edit did
-nothing)` in a partial apply. This model coped, but the message taught
+  nothing)` in a partial apply. This model coped, but the message taught
   nothing — the next retry could easily be another no-op.
 - Fix (message only): identical-text noops now set `diag.reason` and the
   validation message to name the `anchor` field (`...use the anchor field
-instead of a no-op edit.`), with no content echoed. Keeps the legacy
+  instead of a no-op edit.`), with no content echoed. Keeps the legacy
   `identical` / `does nothing` wording so existing matchers still hit.
 
 ### P8 — stringified `edits` with a missing OPENING quote on the key (glm-5.3, mined 2026-11-21)
