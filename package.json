@@ -62,7 +62,7 @@
     "@earendil-works/pi-coding-agent": "1.5.2",
     "@earendil-works/pi-tui": "1.5.2",
     "@types/node": "^24.0.0",
-    "diff": "8.0.4",
+    "diff": "9.0.0",
     "jiti": "^2.7.0",
     "lint-staged": "^17.0.8",
     "oxfmt": "^0.79.0",
