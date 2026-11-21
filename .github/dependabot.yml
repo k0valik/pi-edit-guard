@@ -1,0 +1,40 @@
+# Dependabot version updates.
+#
+# This repo is public, so no settings toggle is needed: once this file is on
+# the default branch, version updates activate automatically (verify under
+# Insights > Dependency graph > Dependabot).
+#
+# npm updates use pnpm (packageManager: pnpm@12.10.0 + pnpm-lock.yaml at the
+# root). The root and the packages/pi-base workspace share that one lockfile,
+# so both directories are listed; Dependabot reconciles them together.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/packages/pi-base"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    # Batch compatible minor/patch bumps into one PR; majors stay individual
+    # by default so breaking changes get their own review.
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
+
+  # Workflow actions are SHA-pinned (e.g. actions/checkout@3d3c42e...);
+  # Dependabot updates the SHA and its # vX.Y.Z comment together.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
