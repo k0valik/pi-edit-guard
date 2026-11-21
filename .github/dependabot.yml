@@ -29,12 +29,24 @@ updates:
           - "minor"
           - "patch"
     open-pull-requests-limit: 10
+    # Release-age maturity gate (parity with the old renovate.json
+    # minimumReleaseAge: 2 days): don't offer packages younger than 2 days
+    # (7 for majors), so CI's minimum-release-age installs stay satisfiable.
+    cooldown:
+      default-days: 2
+      semver-major-days: 7
 
   # Workflow actions are SHA-pinned (e.g. actions/checkout@3d3c42e...);
-  # Dependabot updates the SHA and its # vX.Y.Z comment together.
+  # Dependabot updates the SHA and its # vX.Y.Z comment together. All
+  # actions group into ONE PR per update run.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
